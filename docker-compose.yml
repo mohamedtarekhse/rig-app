@@ -14,6 +14,8 @@ services:
     restart: unless-stopped
     depends_on:
       - mysql
+    networks:
+      - internal
 
   mysql:
     image: mysql:8.4
@@ -26,6 +28,14 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    networks:
+      internal:
+        aliases:
+          - mysql
 
 volumes:
   mysql_data:
+
+networks:
+  internal:
+    driver: bridge
