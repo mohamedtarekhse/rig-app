@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiRouter } from './api/routes.js';
 import { env } from './config/env.js';
-import { ensureBootstrapData, waitForDatabase } from './db/bootstrap.js';
+import { ensureBootstrapData, ensureSchema, waitForDatabase } from './db/bootstrap.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const staticRootCandidates = [
@@ -14,8 +14,6 @@ const staticRootCandidates = [
 ];
 const staticRoot = staticRootCandidates.find((candidate) => fs.existsSync(candidate)) ?? staticRootCandidates[0];
 async function start() {
-    await waitForDatabase();
-    await ensureBootstrapData();
     const app = express();
     app.use(cors());
     app.use(express.json({ limit: '2mb' }));
@@ -28,6 +26,15 @@ async function start() {
         console.log(`Rigways rebuild is listening on port ${env.port}`);
         console.log(`Serving frontend from ${staticRoot}`);
     });
+    try {
+        await waitForDatabase();
+        await ensureSchema();
+        await ensureBootstrapData();
+        console.log('Database bootstrap completed.');
+    }
+    catch (error) {
+        console.error('Database bootstrap failed after extended retries.', error);
+    }
 }
 start().catch((error) => {
     console.error('Failed to start application', error);

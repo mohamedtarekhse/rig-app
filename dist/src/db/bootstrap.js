@@ -1,18 +1,49 @@
 import bcrypt from 'bcryptjs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { pool } from './pool.js';
-export async function waitForDatabase(retries = 20) {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const schemaCandidates = [
+    path.resolve(__dirname, '../../docker/mysql/init.sql'),
+    path.resolve(__dirname, '../../../docker/mysql/init.sql'),
+];
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function loadSchemaSql() {
+    for (const candidate of schemaCandidates) {
+        try {
+            return await fs.readFile(candidate, 'utf8');
+        }
+        catch {
+            continue;
+        }
+    }
+    throw new Error(`Schema file not found. Looked in: ${schemaCandidates.join(', ')}`);
+}
+export async function waitForDatabase(retries = 120, delayMs = 2000) {
     let lastError;
     for (let attempt = 1; attempt <= retries; attempt += 1) {
         try {
             await pool.query('SELECT 1');
+            console.log(`Database connection established after ${attempt} attempt(s).`);
             return;
         }
         catch (error) {
             lastError = error;
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`Database not ready yet (attempt ${attempt}/${retries}): ${message}`);
+            await delay(delayMs);
         }
     }
     throw lastError;
+}
+export async function ensureSchema() {
+    const sql = await loadSchemaSql();
+    await pool.query(sql);
+    console.log('Database schema ensured from init.sql.');
 }
 export async function ensureBootstrapData() {
     const [userRows] = await pool.query('SELECT COUNT(*) AS count FROM users');

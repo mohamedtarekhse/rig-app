@@ -15,5 +15,6 @@ ENV NODE_ENV=production
 COPY package.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/docker ./docker
 EXPOSE 8080
 CMD ["node", "dist/src/server.js"]
