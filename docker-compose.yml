@@ -11,9 +11,9 @@ services:
       DB_NAME: ${DB_NAME:-rigways}
       DB_USER: ${DB_USER:-rigways}
       DB_PASSWORD: ${DB_PASSWORD:-rigways_password}
+    restart: unless-stopped
     depends_on:
-      mysql:
-        condition: service_healthy
+      - mysql
 
   mysql:
     image: mysql:8.4
@@ -22,12 +22,7 @@ services:
       MYSQL_DATABASE: ${DB_NAME:-rigways}
       MYSQL_USER: ${DB_USER:-rigways}
       MYSQL_PASSWORD: ${DB_PASSWORD:-rigways_password}
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
+    restart: unless-stopped
     volumes:
       - mysql_data:/var/lib/mysql
       - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
