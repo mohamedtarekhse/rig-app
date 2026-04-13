@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiRouter } from './api/routes.js';
@@ -7,7 +8,11 @@ import { env } from './config/env.js';
 import { ensureBootstrapData, waitForDatabase } from './db/bootstrap.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const staticRoot = path.resolve(__dirname, '../dist/web');
+const staticRootCandidates = [
+    path.resolve(__dirname, '../web'),
+    path.resolve(__dirname, '../dist/web'),
+];
+const staticRoot = staticRootCandidates.find((candidate) => fs.existsSync(candidate)) ?? staticRootCandidates[0];
 async function start() {
     await waitForDatabase();
     await ensureBootstrapData();
@@ -21,6 +26,7 @@ async function start() {
     });
     app.listen(env.port, () => {
         console.log(`Rigways rebuild is listening on port ${env.port}`);
+        console.log(`Serving frontend from ${staticRoot}`);
     });
 }
 start().catch((error) => {
