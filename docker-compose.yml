@@ -1,0 +1,42 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rigways-app
+    environment:
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:-please-change-this}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-rigways}
+      DB_USER: ${DB_USER:-rigways}
+      DB_PASSWORD: ${DB_PASSWORD:-rigways_password}
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    container_name: rigways-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${DB_NAME:-rigways}
+      MYSQL_USER: ${DB_USER:-rigways}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-rigways_password}
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+
+volumes:
+  mysql_data:
