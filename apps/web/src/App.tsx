@@ -4,26 +4,36 @@ import { Layout } from './components/Layout';
 import { fetchMe, getToken } from './lib/api';
 import type { ResourceDefinition, SessionUser } from './lib/types';
 import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
 import { ResourcePage } from './pages/ResourcePage';
 
-const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
+export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   {
     key: 'assets',
     label: 'Assets',
+    navTitle: 'Asset Management',
     path: 'assets',
-    title: 'Asset registry',
-    subtitle: 'Track fleet equipment, operating status, and asset ownership by client.',
+    title: 'Assets',
+    subtitle: 'All assets across clients',
+    variant: 'assets',
+    accent: 'blue',
+    addLabel: 'Add Asset',
+    stats: [
+      { label: 'All', key: 'total', tone: 'blue' },
+      { label: 'Operation', key: 'operation', tone: 'green' },
+      { label: 'Stacked', key: 'stacked', tone: 'slate' },
+    ],
     columns: [
-      { key: 'asset_number', label: 'Asset #' },
-      { key: 'name', label: 'Name' },
-      { key: 'asset_type', label: 'Type' },
-      { key: 'client_id', label: 'Client' },
+      { key: 'asset_number', label: 'Asset ID' },
+      { key: 'name', label: 'Asset Name' },
+      { key: 'asset_type', label: 'Type / Category' },
+      { key: 'serial_number', label: 'Serial No.' },
+      { key: 'functional_location', label: 'Location' },
       { key: 'status', label: 'Status' },
+      { key: 'client_id', label: 'Client' },
     ],
     fields: [
       { key: 'asset_number', label: 'Asset number' },
-      { key: 'name', label: 'Name' },
+      { key: 'name', label: 'Asset name' },
       {
         key: 'asset_type',
         label: 'Asset type',
@@ -41,19 +51,31 @@ const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   {
     key: 'certificates',
     label: 'Certificates',
+    navTitle: 'Certificate Management',
     path: 'certificates',
-    title: 'Certificate control',
-    subtitle: 'Review issue dates, expiry windows, and approval state from a single workflow.',
+    title: 'Certificates',
+    subtitle: 'All certificates across clients',
+    variant: 'certificates',
+    accent: 'blue',
+    addLabel: 'Upload Certificate',
+    stats: [
+      { label: 'Valid', key: 'approved', tone: 'green' },
+      { label: 'Pending', key: 'pending', tone: 'orange' },
+      { label: 'Rejected', key: 'rejected', tone: 'red' },
+    ],
     columns: [
-      { key: 'cert_number', label: 'Certificate #' },
-      { key: 'name', label: 'Name' },
+      { key: 'cert_number', label: 'Cert ID' },
       { key: 'asset_id', label: 'Asset ID' },
+      { key: 'name', label: 'Certificate Name' },
+      { key: 'cert_type', label: 'Type' },
+      { key: 'issued_by', label: 'Issued By' },
       { key: 'expiry_date', label: 'Expiry' },
       { key: 'approval_status', label: 'Approval' },
+      { key: 'client_id', label: 'Client' },
     ],
     fields: [
       { key: 'cert_number', label: 'Certificate number' },
-      { key: 'name', label: 'Name' },
+      { key: 'name', label: 'Certificate name' },
       {
         key: 'cert_type',
         label: 'Certificate type',
@@ -77,36 +99,104 @@ const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   {
     key: 'jobs',
     label: 'Jobs',
+    navTitle: 'Asset & Certificate Management',
     path: 'jobs',
-    title: 'Job workflow',
-    subtitle: 'Coordinate field jobs, assign responsibility, and move work cleanly to closure.',
+    title: 'Jobs',
+    subtitle: 'Create work orders and track field actions',
+    variant: 'jobs',
+    accent: 'blue',
+    addLabel: 'Create Job',
     columns: [
-      { key: 'job_number', label: 'Job #' },
-      { key: 'title', label: 'Title' },
+      { key: 'job_number', label: 'Job Number' },
       { key: 'client_id', label: 'Client' },
-      { key: 'functional_location', label: 'Location' },
+      { key: 'functional_location', label: 'Functional Location' },
+      { key: 'notes', label: 'Scope' },
       { key: 'status', label: 'Status' },
     ],
     fields: [
-      { key: 'job_number', label: 'Job number' },
+      { key: 'job_number', label: 'Job Number (optional)' },
       { key: 'client_id', label: 'Client code' },
       { key: 'functional_location', label: 'Functional location' },
       { key: 'title', label: 'Title' },
+      { key: 'notes', label: 'Scope', type: 'textarea' },
       {
         key: 'status',
         label: 'Status',
         type: 'select',
         options: ['active', 'technician_done', 'closed', 'reopened'],
       },
-      { key: 'notes', label: 'Notes', type: 'textarea' },
+    ],
+  },
+  {
+    key: 'notifications',
+    label: 'Notifications',
+    navTitle: 'Notifications & Alerts',
+    path: 'notifications',
+    title: 'Notifications & Alerts',
+    subtitle: 'Certificate expiry alerts, approval updates, and system events',
+    variant: 'notifications',
+    accent: 'blue',
+    addLabel: 'Send Alerts by Email',
+    stats: [
+      { label: 'Total', key: 'total', tone: 'blue' },
+      { label: 'Unread', key: 'unread', tone: 'red' },
+      { label: 'Critical', key: 'critical', tone: 'orange' },
+      { label: 'Warnings', key: 'warnings', tone: 'orange' },
+      { label: 'Info', key: 'info', tone: 'green' },
+    ],
+    columns: [
+      { key: 'type', label: 'Type' },
+      { key: 'title', label: 'Title' },
+      { key: 'body', label: 'Body' },
+      { key: 'created_at', label: 'Created' },
+    ],
+    fields: [
+      { key: 'type', label: 'Type' },
+      { key: 'title', label: 'Title' },
+      { key: 'body', label: 'Body', type: 'textarea' },
+      { key: 'is_read', label: 'Read state', type: 'select', options: ['0', '1'] },
+    ],
+  },
+  {
+    key: 'files',
+    label: 'Files',
+    navTitle: 'Asset & Certificate Management',
+    path: 'files',
+    title: 'Files Explorer',
+    subtitle: 'Global file explorer',
+    variant: 'files',
+    accent: 'amber',
+    addLabel: 'Apply',
+    columns: [
+      { key: 'job_id', label: 'Job' },
+      { key: 'cert_type', label: 'Cert Type' },
+      { key: 'file_name', label: 'Filename' },
+      { key: 'file_size', label: 'Size' },
+      { key: 'uploaded_by', label: 'Uploaded By' },
+      { key: 'uploaded_at', label: 'Uploaded At' },
+      { key: 'status', label: 'Status' },
+    ],
+    fields: [
+      { key: 'file_name', label: 'Filename' },
+      { key: 'status', label: 'Status' },
     ],
   },
   {
     key: 'clients',
     label: 'Clients',
+    navTitle: 'Client Management',
     path: 'clients',
-    title: 'Client directory',
-    subtitle: 'Maintain customer identities, account state, and contact detail in one place.',
+    title: 'Client Management',
+    subtitle: 'Manage client accounts and their linked assets & certificates',
+    variant: 'clients',
+    accent: 'amber',
+    addLabel: 'Add Client',
+    stats: [
+      { label: 'Total Clients', key: 'total', tone: 'blue' },
+      { label: 'Active Clients', key: 'active', tone: 'green' },
+      { label: 'Total Assets', key: 'assets', tone: 'orange' },
+      { label: 'Expiring Certs', key: 'expiring', tone: 'red' },
+    ],
     columns: [
       { key: 'client_id', label: 'Client ID' },
       { key: 'name', label: 'Name' },
@@ -129,14 +219,26 @@ const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   {
     key: 'inspectors',
     label: 'Inspectors',
+    navTitle: 'Inspector Management',
     path: 'inspectors',
-    title: 'Inspector roster',
-    subtitle: 'Store assigned inspectors, contact details, and field availability.',
+    title: 'Inspector Management',
+    subtitle: 'Manage inspector profiles, qualifications & linked certificates',
+    variant: 'inspectors',
+    accent: 'amber',
+    addLabel: 'Add Inspector',
+    stats: [
+      { label: 'Total Inspectors', key: 'total', tone: 'blue' },
+      { label: 'Active', key: 'active', tone: 'green' },
+      { label: 'Avg Experience', key: 'avgExperience', tone: 'orange' },
+      { label: 'Linked Certificates', key: 'linkedCertificates', tone: 'green' },
+    ],
     columns: [
-      { key: 'inspector_number', label: 'Inspector #' },
-      { key: 'name', label: 'Name' },
-      { key: 'title', label: 'Title' },
-      { key: 'email', label: 'Email' },
+      { key: 'inspector_number', label: 'Inspector ID' },
+      { key: 'name', label: 'Name / Title' },
+      { key: 'education', label: 'Education' },
+      { key: 'experience_years', label: 'Experience' },
+      { key: 'cv', label: 'CV' },
+      { key: 'training_certificates', label: 'Training Certificates' },
       { key: 'status', label: 'Status' },
     ],
     fields: [
@@ -151,16 +253,27 @@ const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   },
   {
     key: 'functional-locations',
-    label: 'Functional locations',
+    label: 'Func. Locations',
+    navTitle: 'Functional Locations',
     path: 'functional-locations',
-    title: 'Location structure',
-    subtitle: 'Anchor assets and jobs to field locations that map cleanly to client operations.',
+    title: 'Functional Locations',
+    subtitle: 'Manage rigs, workshops and other locations grouped by client',
+    variant: 'locations',
+    accent: 'amber',
+    addLabel: 'Add Location',
+    stats: [
+      { label: 'Total Locations', key: 'total', tone: 'blue' },
+      { label: 'Rigs', key: 'rigs', tone: 'green' },
+      { label: 'Workshops', key: 'workshops', tone: 'orange' },
+      { label: 'Other', key: 'other', tone: 'slate' },
+    ],
     columns: [
-      { key: 'fl_id', label: 'FL ID' },
-      { key: 'name', label: 'Name' },
+      { key: 'fl_id', label: 'Location ID' },
+      { key: 'name', label: 'Location Name' },
       { key: 'type', label: 'Type' },
       { key: 'client_id', label: 'Client' },
-      { key: 'status', label: 'Status' },
+      { key: 'notes', label: 'Description' },
+      { key: 'assets', label: 'Assets' },
     ],
     fields: [
       { key: 'fl_id', label: 'Functional location ID' },
@@ -168,27 +281,7 @@ const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
       { key: 'type', label: 'Type', type: 'select', options: ['Rig', 'Workshop', 'Yard', 'Warehouse', 'Other'] },
       { key: 'client_id', label: 'Client code' },
       { key: 'status', label: 'Status', type: 'select', options: ['active', 'inactive'] },
-      { key: 'notes', label: 'Notes', type: 'textarea' },
-    ],
-  },
-  {
-    key: 'notifications',
-    label: 'Notifications',
-    path: 'notifications',
-    title: 'Notification center',
-    subtitle: 'See operational messages, unread state, and reference links across the platform.',
-    columns: [
-      { key: 'type', label: 'Type' },
-      { key: 'title', label: 'Title' },
-      { key: 'body', label: 'Body' },
-      { key: 'is_read', label: 'Read' },
-      { key: 'created_at', label: 'Created' },
-    ],
-    fields: [
-      { key: 'type', label: 'Type' },
-      { key: 'title', label: 'Title' },
-      { key: 'body', label: 'Body', type: 'textarea' },
-      { key: 'is_read', label: 'Read state', type: 'select', options: ['0', '1'] },
+      { key: 'notes', label: 'Description', type: 'textarea' },
     ],
   },
 ];
@@ -198,8 +291,8 @@ function ProtectedApp({ user }: { user: SessionUser }) {
 
   return (
     <Routes>
-      <Route element={<Layout user={user} />}>
-        <Route path="/" element={<DashboardPage />} />
+      <Route element={<Layout user={user} definitions={definitions} />}>
+        <Route path="/" element={<Navigate to="/assets" replace />} />
         {definitions.map((definition) => (
           <Route
             key={definition.key}
@@ -208,7 +301,7 @@ function ProtectedApp({ user }: { user: SessionUser }) {
           />
         ))}
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/assets" replace />} />
     </Routes>
   );
 }

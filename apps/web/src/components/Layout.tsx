@@ -1,51 +1,77 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import type { SessionUser } from '../lib/types';
+﻿import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import type { ResourceDefinition, SessionUser } from '../lib/types';
 import { clearToken } from '../lib/api';
 
 type LayoutProps = {
   user: SessionUser;
+  definitions: ResourceDefinition[];
 };
 
-const NAV_ITEMS = [
-  { to: '/', label: 'Overview' },
-  { to: '/assets', label: 'Assets' },
-  { to: '/certificates', label: 'Certificates' },
-  { to: '/jobs', label: 'Jobs' },
-  { to: '/clients', label: 'Clients' },
-  { to: '/inspectors', label: 'Inspectors' },
-  { to: '/functional-locations', label: 'Locations' },
-  { to: '/notifications', label: 'Notifications' },
-];
+const BRAND_MARK = (
+  <svg viewBox="0 0 96 28" className="brand-logo" aria-hidden="true">
+    <path d="M7 6h27l-8 8H14l8 8H7L0 14 7 6Zm31 0h52l-8 8H65l8 8H58l-8-8H39l7-8Zm18 0-7 8h-9l7-8h9Z" fill="currentColor" />
+  </svg>
+);
 
-export function Layout({ user }: LayoutProps) {
+const NAV_META: Record<string, string> = {
+  assets: 'AS',
+  certificates: 'CF',
+  jobs: 'JB',
+  notifications: 'NT',
+  files: 'FL',
+  clients: 'CL',
+  inspectors: 'IN',
+  'functional-locations': 'LO',
+};
+
+export function Layout({ user, definitions }: LayoutProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const active = definitions.find((definition) => location.pathname.startsWith(`/${definition.path}`)) ?? definitions[0];
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">R</span>
-          <div>
-            <p>Rigways</p>
-            <small>Command Center</small>
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="brand-cluster">
+          <div className="brand-lockup">
+            {BRAND_MARK}
+            <div className="brand-copy">
+              <strong>Rigways Group</strong>
+              <span>Oil &amp; Gas Company</span>
+            </div>
           </div>
+          <span className="brand-badge">ACM</span>
+          <div className="section-divider" />
+          <p className="section-title">{active.navTitle}</p>
         </div>
 
-        <nav className="nav">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+        <div className="header-actions">
+          <button className="icon-circle bell-icon" type="button" aria-label="Notifications">
+            <span className="notif-dot" />
+          </button>
+          <button className="icon-circle gear-icon" type="button" aria-label="Settings" />
+          <div className="avatar-circle">{user.name.charAt(0).toUpperCase()}</div>
+        </div>
+      </header>
+
+      <nav className="app-nav">
+        {definitions.map((item) => (
+          <NavLink
+            key={item.path}
+            to={`/${item.path}`}
+            className={({ isActive }) =>
+              isActive
+                ? `app-nav-link active ${item.accent === 'amber' ? 'is-amber' : ''}`
+                : `app-nav-link ${item.accent === 'amber' ? 'is-amber' : ''}`
+            }
+          >
+            <span className="nav-glyph">{NAV_META[item.path] ?? 'NA'}</span>
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
 
         <button
-          className="ghost-button logout-button"
+          className="logout-ghost"
           onClick={() => {
             clearToken();
             navigate('/login');
@@ -53,21 +79,9 @@ export function Layout({ user }: LayoutProps) {
         >
           Sign out
         </button>
-      </aside>
+      </nav>
 
-      <main className="main-panel">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Fleet operations</p>
-            <h1>Asset and certificate control</h1>
-          </div>
-
-          <div className="user-pill">
-            <strong>{user.name}</strong>
-            <span>{user.role}</span>
-          </div>
-        </header>
-
+      <main className="app-main">
         <Outlet />
       </main>
     </div>

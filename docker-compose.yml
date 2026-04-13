@@ -11,6 +11,8 @@ services:
       DB_NAME: ${DB_NAME:-rigways}
       DB_USER: ${DB_USER:-rigways}
       DB_PASSWORD: ${DB_PASSWORD:-rigways_password}
+    expose:
+      - "8080"
     restart: unless-stopped
     depends_on:
       - mysql

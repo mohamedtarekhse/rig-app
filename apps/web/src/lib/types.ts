@@ -17,14 +17,47 @@ export type DashboardSummary = {
   inspectors: number;
 };
 
+export type ResourceColumn = {
+  key: string;
+  label: string;
+};
+
+export type ResourceField = {
+  key: string;
+  label: string;
+  type?: 'text' | 'date' | 'textarea' | 'select';
+  options?: string[];
+};
+
+export type ResourceVariant =
+  | 'assets'
+  | 'certificates'
+  | 'jobs'
+  | 'notifications'
+  | 'files'
+  | 'clients'
+  | 'inspectors'
+  | 'locations';
+
+export type ResourceStat = {
+  label: string;
+  key: string;
+  tone: 'blue' | 'green' | 'orange' | 'red' | 'slate';
+};
+
 export type ResourceDefinition = {
   key: string;
   label: string;
   path: string;
   title: string;
   subtitle: string;
-  columns: Array<{ key: string; label: string }>;
-  fields: Array<{ key: string; label: string; type?: 'text' | 'date' | 'textarea' | 'select'; options?: string[] }>;
+  navTitle: string;
+  variant: ResourceVariant;
+  accent: 'blue' | 'amber';
+  addLabel: string;
+  columns: ResourceColumn[];
+  fields: ResourceField[];
+  stats?: ResourceStat[];
 };
 
 export type ResourceRow = Record<string, string | number | null>;
