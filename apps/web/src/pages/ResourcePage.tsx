@@ -1,4 +1,5 @@
 ﻿import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useState, startTransition } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { createResource, deleteResource, fetchResource, updateResource } from '../lib/api';
 import { ResourceTable } from '../components/ResourceTable';
 import {
@@ -100,6 +101,15 @@ function getColumnStorageKey(userId: number, path: string) {
   return `rigways_columns_${userId}_${path}`;
 }
 
+function readParam(params: URLSearchParams, key: string, fallback = '') {
+  return params.get(key) ?? fallback;
+}
+
+function writeParam(params: URLSearchParams, key: string, value: string) {
+  if (value && value !== 'all') params.set(key, value);
+  else params.delete(key);
+}
+
 function searchMatches(row: ResourceRow, definition: ResourceDefinition, query: string) {
   if (!query.trim()) {
     return true;
@@ -163,6 +173,7 @@ function normalizeAssetImportRecord(record: Record<string, string>) {
 }
 
 export function ResourcePage({ definition, user }: ResourcePageProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<ResourceRow[]>([]);
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
@@ -192,6 +203,61 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
   const [importError, setImportError] = useState('');
   const [importFileName, setImportFileName] = useState('');
   const [importPreviewRows, setImportPreviewRows] = useState<AssetImportPreviewRow[]>([]);
+
+  useEffect(() => {
+    setQuery(readParam(searchParams, 'q'));
+    setAssetStatusFilter(readParam(searchParams, 'assetStatus', 'all') || 'all');
+    setCertificateFilter(readParam(searchParams, 'certificateStatus', 'all') || 'all');
+    setInspectorFilter(readParam(searchParams, 'inspectorStatus', 'all') || 'all');
+    setLocationFilter(readParam(searchParams, 'locationType', 'all') || 'all');
+    setNotificationFilter(readParam(searchParams, 'notificationTab', 'all') || 'all');
+    setSelectedClient(readParam(searchParams, 'client', 'all') || 'all');
+    setSelectedType(readParam(searchParams, 'type', 'all') || 'all');
+    setSelectedLocation(readParam(searchParams, 'location', 'all') || 'all');
+    setSelectedStatus(readParam(searchParams, 'status', 'all') || 'all');
+    setSelectedIndustry(readParam(searchParams, 'industry', 'all') || 'all');
+    setSelectedDate(readParam(searchParams, 'date'));
+    setJobFilter(readParam(searchParams, 'job'));
+    setFileClientFilter(readParam(searchParams, 'fileClient'));
+    setFileCertTypeFilter(readParam(searchParams, 'fileCertType'));
+  }, [definition.path]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    writeParam(params, 'q', query.trim());
+    writeParam(params, 'assetStatus', assetStatusFilter);
+    writeParam(params, 'certificateStatus', certificateFilter);
+    writeParam(params, 'inspectorStatus', inspectorFilter);
+    writeParam(params, 'locationType', locationFilter);
+    writeParam(params, 'notificationTab', notificationFilter);
+    writeParam(params, 'client', selectedClient);
+    writeParam(params, 'type', selectedType);
+    writeParam(params, 'location', selectedLocation);
+    writeParam(params, 'status', selectedStatus);
+    writeParam(params, 'industry', selectedIndustry);
+    writeParam(params, 'date', selectedDate);
+    writeParam(params, 'job', jobFilter.trim());
+    writeParam(params, 'fileClient', fileClientFilter.trim());
+    writeParam(params, 'fileCertType', fileCertTypeFilter.trim());
+    setSearchParams(params, { replace: true });
+  }, [
+    assetStatusFilter,
+    certificateFilter,
+    fileCertTypeFilter,
+    fileClientFilter,
+    inspectorFilter,
+    jobFilter,
+    locationFilter,
+    notificationFilter,
+    query,
+    selectedClient,
+    selectedDate,
+    selectedIndustry,
+    selectedLocation,
+    selectedStatus,
+    selectedType,
+    setSearchParams,
+  ]);
 
   async function refreshRows() {
     const data = await fetchResource(definition.path);
@@ -488,38 +554,38 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
         ) : null}
 
         <div className={`toolbar-row ${isAssets ? 'assets-toolbar-row' : ''}`}>
-          {definition.variant === 'files' ? <input placeholder="Job" value={jobFilter} onChange={(event) => setJobFilter(event.target.value)} /> : null}
+          {definition.variant === 'files' ? <input aria-label="Filter files by job" placeholder="Job" value={jobFilter} onChange={(event) => setJobFilter(event.target.value)} /> : null}
           {['assets', 'certificates', 'locations'].includes(definition.variant) ? (
-            <select value={selectedClient} onChange={(event) => setSelectedClient(event.target.value)}>
+            <select aria-label="Filter by client" value={selectedClient} onChange={(event) => setSelectedClient(event.target.value)}>
               <option value="all">All Clients</option>
               {clientOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           ) : null}
           {definition.variant === 'assets' ? (
-            <select value={selectedType} onChange={(event) => setSelectedType(event.target.value)}>
+            <select aria-label="Filter by type" value={selectedType} onChange={(event) => setSelectedType(event.target.value)}>
               <option value="all">All Types</option>
               {assetTypeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           ) : null}
           {definition.variant === 'certificates' ? (
-            <select value={selectedType} onChange={(event) => setSelectedType(event.target.value)}>
+            <select aria-label="Filter by type" value={selectedType} onChange={(event) => setSelectedType(event.target.value)}>
               <option value="all">All Types</option>
               {assetTypeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           ) : null}
           {definition.variant === 'assets' ? (
-            <select value={selectedLocation} onChange={(event) => setSelectedLocation(event.target.value)}>
+            <select aria-label="Filter by location" value={selectedLocation} onChange={(event) => setSelectedLocation(event.target.value)}>
               <option value="all">All Locations</option>
               {locationOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           ) : null}
           {definition.variant === 'clients' ? (
             <>
-              <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+              <select aria-label="Filter by status" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
                 <option value="all">All Status</option>
                 {statusOptions.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
-              <select value={selectedIndustry} onChange={(event) => setSelectedIndustry(event.target.value)}>
+              <select aria-label="Filter by industry" value={selectedIndustry} onChange={(event) => setSelectedIndustry(event.target.value)}>
                 <option value="all">All Industries</option>
                 {industryOptions.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
@@ -527,14 +593,14 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
           ) : null}
           {definition.variant === 'files' ? (
             <>
-              <input placeholder="Client" value={fileClientFilter} onChange={(event) => setFileClientFilter(event.target.value)} />
-              <input placeholder="Cert Type" value={fileCertTypeFilter} onChange={(event) => setFileCertTypeFilter(event.target.value)} />
+              <input aria-label="Filter files by client" placeholder="Client" value={fileClientFilter} onChange={(event) => setFileClientFilter(event.target.value)} />
+              <input aria-label="Filter files by certificate type" placeholder="Cert Type" value={fileCertTypeFilter} onChange={(event) => setFileCertTypeFilter(event.target.value)} />
             </>
           ) : null}
-          {['assets', 'jobs', 'files'].includes(definition.variant) ? <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /> : null}
+          {['assets', 'jobs', 'files'].includes(definition.variant) ? <input aria-label="Filter by date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /> : null}
           <div className="search-shell compact assets-search-shell">
             <span className="search-shell-icon" />
-            <input placeholder={placeholderMap[definition.variant] ?? 'Search...'} value={query} onChange={(event) => startTransition(() => setQuery(event.target.value))} />
+            <input aria-label={`Search ${definition.label.toLowerCase()}`} placeholder={placeholderMap[definition.variant] ?? 'Search...'} value={query} onChange={(event) => startTransition(() => setQuery(event.target.value))} />
           </div>
           <div className="toolbar-actions">
             {definition.variant === 'assets' ? <button className="soft-button" type="button" onClick={() => setImportOpen(true)}>Import</button> : null}
@@ -684,13 +750,13 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
           <div className="search-stack">
             <div className="search-shell compact wide">
               <span className="search-shell-icon" />
-              <input value={query} onChange={(event) => startTransition(() => setQuery(event.target.value))} placeholder="Search clients..." />
+              <input aria-label="Search clients" value={query} onChange={(event) => startTransition(() => setQuery(event.target.value))} placeholder="Search clients..." />
             </div>
-            <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+            <select aria-label="Filter by status" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
               <option value="all">All Status</option>
               {statusOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
-            <select value={selectedIndustry} onChange={(event) => setSelectedIndustry(event.target.value)}>
+            <select aria-label="Filter by industry" value={selectedIndustry} onChange={(event) => setSelectedIndustry(event.target.value)}>
               <option value="all">All Industries</option>
               {industryOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
@@ -714,8 +780,8 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
                   </div>
                 </div>
                 <div className="row-actions">
-                  <button className="icon-button edit" type="button" onClick={() => beginEdit(row)}><span className="icon-pencil" /></button>
-                  <button className="icon-button delete" type="button" onClick={() => handleDelete(row)}><span className="icon-trash" /></button>
+                  <button className="icon-button edit" type="button" aria-label={`Edit client ${safeText(row.name)}`} onClick={() => beginEdit(row)}><span className="icon-pencil" /></button>
+                  <button className="icon-button delete" type="button" aria-label={`Delete client ${safeText(row.name)}`} onClick={() => handleDelete(row)}><span className="icon-trash" /></button>
                 </div>
               </div>
               <div className="client-metrics">
@@ -741,14 +807,15 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
         <div className="page-actions-row notifications-top">
           <div><h2>{definition.title}</h2><p>{definition.subtitle}</p></div>
           <div className="toolbar-actions wide-gap">
-            <button className="soft-button" type="button">Reset Push</button>
-            <button className="soft-button" type="button">Mark All Read</button>
-            <button className="soft-button" type="button">Clear All</button>
+            <button className="soft-button" type="button" disabled title="Frontend preview only">Reset Push</button>
+            <button className="soft-button" type="button" disabled title="Frontend preview only">Mark All Read</button>
+            <button className="soft-button" type="button" disabled title="Frontend preview only">Clear All</button>
             {renderExportButtons()}
-            <button className="submit-button compact" type="button">Send Alerts by Email</button>
-            <button className="soft-button" type="button">Check Health</button>
+            <button className="submit-button compact" type="button" disabled title="Frontend preview only">Send Alerts by Email</button>
+            <button className="soft-button" type="button" disabled title="Frontend preview only">Check Health</button>
           </div>
         </div>
+        <p className="notifications-disclaimer">Operational notification actions are shown here for layout parity, but they are disabled in this frontend-only build.</p>
         <section className="alert-banner-card">
           <div><h3>Alert Configuration</h3><p>Configure when expiry alerts are triggered for certificates</p></div>
           <div className="alert-controls">
@@ -769,14 +836,14 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
             ))}
             <div className="search-shell compact right-push">
               <span className="search-shell-icon" />
-              <input value={query} onChange={(event) => startTransition(() => setQuery(event.target.value))} placeholder="Search notifications..." />
+              <input aria-label="Search notifications" value={query} onChange={(event) => startTransition(() => setQuery(event.target.value))} placeholder="Search notifications..." />
             </div>
           </div>
           <div className="toggle-row">
             <div className="toggle-card"><span className="toggle on" /> <div><strong>Email Notifications</strong><p>Receive digest emails for expiry alerts</p></div></div>
             <div className="toggle-card"><span className="toggle" /> <div><strong>Push Notifications</strong><p>Enable browser push alerts</p></div></div>
-            <button className="soft-button" type="button">Test Me</button>
-            <button className="soft-button" type="button">Test All</button>
+            <button className="soft-button" type="button" disabled title="Frontend preview only">Test Me</button>
+            <button className="soft-button" type="button" disabled title="Frontend preview only">Test All</button>
           </div>
           <div className="notification-list">
             {filteredRows.length === 0 ? (
