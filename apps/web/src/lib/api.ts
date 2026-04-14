@@ -30,9 +30,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error('Your session has expired. Please sign in again.');
   }
 
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
+  const contentType = response.headers.get('content-type') ?? '';
+  const isJson = contentType.includes('application/json');
+  const rawBody = await response.text();
+
+  let payload: { success?: boolean; error?: string; data?: T } | null = null;
+  if (rawBody && isJson) {
+    try {
+      payload = JSON.parse(rawBody) as { success?: boolean; error?: string; data?: T };
+    } catch {
+      throw new Error('The server returned an invalid JSON response.');
+    }
+  }
+
+  if (!response.ok) {
+    const message = payload?.error ?? rawBody.trim() ?? `Request failed with status ${response.status}.`;
+    throw new Error(message || `Request failed with status ${response.status}.`);
+  }
+
+  if (payload?.success === false) {
     throw new Error(payload.error ?? 'Something went wrong.');
+  }
+
+  if (!payload) {
+    return undefined as T;
   }
 
   return payload.data as T;

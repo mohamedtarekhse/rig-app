@@ -32,6 +32,15 @@ type AssetImportPreviewRow = {
   error: string;
 };
 
+type AssetImportSummary = {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  failures: Array<{ rowNumber: number; assetLabel: string; message: string }>;
+};
+
 const ASSET_REQUIRED_COLUMNS = ['asset_number', 'name', 'asset_type', 'status', 'client_id', 'functional_location', 'serial_number'] as const;
 
 function buildInitialForm(definition: ResourceDefinition) {
@@ -203,6 +212,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
   const [importError, setImportError] = useState('');
   const [importFileName, setImportFileName] = useState('');
   const [importPreviewRows, setImportPreviewRows] = useState<AssetImportPreviewRow[]>([]);
+  const [importSummary, setImportSummary] = useState<AssetImportSummary | null>(null);
 
   useEffect(() => {
     setQuery(readParam(searchParams, 'q'));
@@ -676,6 +686,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     if (!file) return;
 
     setImportError('');
+    setImportSummary(null);
     setImportFileName(file.name);
 
     try {
@@ -721,20 +732,51 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     }
 
     setImportError('');
+    setImportSummary(null);
     setImporting(true);
+
+    const summary: AssetImportSummary = {
+      total: importPreviewRows.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      failures: [],
+    };
 
     try {
       for (const row of importPreviewRows) {
-        if (row.choice === 'skip') continue;
+        if (row.choice === 'skip') {
+          summary.skipped += 1;
+          continue;
+        }
+
         const payload = assetImportBody(row.record);
-        if (row.existing && row.choice === 'update') await updateResource('assets', String(row.existing.id), payload);
-        else if (row.choice === 'create') await createResource('assets', payload);
+        const assetLabel = row.record.asset_number || row.record.name || 'unknown asset';
+
+        try {
+          if (row.existing && row.choice === 'update') {
+            await updateResource('assets', String(row.existing.id), payload);
+            summary.updated += 1;
+          } else if (row.choice === 'create') {
+            await createResource('assets', payload);
+            summary.created += 1;
+          }
+        } catch (caught) {
+          const detail = caught instanceof Error ? caught.message : 'Import failed.';
+          summary.failed += 1;
+          summary.failures.push({ rowNumber: row.rowNumber, assetLabel, message: detail });
+        }
       }
 
       await refreshRows();
-      setImportOpen(false);
-      setImportFileName('');
-      setImportPreviewRows([]);
+      setImportSummary(summary);
+
+      if (summary.failed > 0) {
+        setImportError(`Import finished with ${summary.failed} failed row(s). Review the summary below.`);
+      } else {
+        setImportError('');
+      }
     } catch (caught) {
       setImportError(caught instanceof Error ? caught.message : 'Import failed.');
     } finally {
@@ -960,6 +1002,36 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
               {['manufacturer', 'model', 'description', 'notes'].map((column) => <span key={column} className="neutral-chip">{column}</span>)}
             </div>
             {importError ? <p className="error-banner">{importError}</p> : null}
+            {importSummary ? (
+              <div className="import-summary-card">
+                <div className="import-summary-head">
+                  <div>
+                    <h4>Import Summary</h4>
+                    <p>{importSummary.failed ? 'Completed with some failed rows.' : 'All processed rows completed successfully.'}</p>
+                  </div>
+                  <span className={`status-pill ${importSummary.failed ? 'orange' : 'green'}`}>
+                    {importSummary.failed ? 'Needs review' : 'Completed'}
+                  </span>
+                </div>
+                <div className="import-summary-metrics">
+                  <span className="neutral-chip">Total {importSummary.total}</span>
+                  <span className="status-pill green">Created {importSummary.created}</span>
+                  <span className="status-pill green">Updated {importSummary.updated}</span>
+                  <span className="status-pill slate">Skipped {importSummary.skipped}</span>
+                  <span className={`status-pill ${importSummary.failed ? 'red' : 'green'}`}>Failed {importSummary.failed}</span>
+                </div>
+                {importSummary.failures.length ? (
+                  <div className="import-failure-list">
+                    {importSummary.failures.map((failure) => (
+                      <article key={`${failure.rowNumber}-${failure.assetLabel}`} className="import-failure-item">
+                        <strong>Row {failure.rowNumber} ? {failure.assetLabel}</strong>
+                        <p>{failure.message}</p>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {importPreviewRows.length ? (
               <div className="import-preview-shell">
                 <div className="import-preview-head"><h4>Preview & Resolve</h4><p>{importPreviewRows.length} rows ready for review</p></div>
@@ -996,7 +1068,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
             ) : null}
           </div>
           <div className="modal-footer">
-            <button className="soft-button" type="button" onClick={() => setImportOpen(false)}>Cancel</button>
+            <button className="soft-button" type="button" onClick={() => { setImportOpen(false); setImportSummary(null); setImportError(''); }}>Cancel</button>
             <button className="submit-button compact" type="button" onClick={runAssetImport} disabled={!importPreviewRows.length || importing}>{importing ? 'Importing...' : 'Import Assets'}</button>
           </div>
         </div>
