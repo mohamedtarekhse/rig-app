@@ -1,19 +1,20 @@
-import type { ResourceDefinition, ResourceRow } from '../lib/types';
+﻿import type { ResourceColumn, ResourceDefinition, ResourceRow } from '../lib/types';
 
 type ResourceTableProps = {
   definition: ResourceDefinition;
+  columns: ResourceColumn[];
   rows: ResourceRow[];
   onEdit: (row: ResourceRow) => void;
   onDelete: (row: ResourceRow) => void;
 };
 
 function formatCell(definition: ResourceDefinition, key: string, value: string | number | null) {
-  const text = String(value ?? '�');
+  const text = String(value ?? '—');
 
   if (key === 'status' || key === 'approval_status') {
     const tone = text.toLowerCase().includes('active') || text.toLowerCase().includes('operation') || text.toLowerCase().includes('approved')
       ? 'green'
-      : text.toLowerCase().includes('pending') || text.toLowerCase().includes('reopen')
+      : text.toLowerCase().includes('pending') || text.toLowerCase().includes('reopen') || text.toLowerCase().includes('expiring')
         ? 'orange'
         : text.toLowerCase().includes('stacked') || text.toLowerCase().includes('closed') || text.toLowerCase().includes('inactive')
           ? 'slate'
@@ -31,7 +32,6 @@ function formatCell(definition: ResourceDefinition, key: string, value: string |
         <span className="mini-avatar">{text.split(' ').map((part) => part[0]).slice(0, 2).join('')}</span>
         <div>
           <strong className="linkish">{text}</strong>
-          <p>{String((value as string) ? '' : '')}</p>
         </div>
       </div>
     );
@@ -48,14 +48,14 @@ function formatCell(definition: ResourceDefinition, key: string, value: string |
   return text;
 }
 
-export function ResourceTable({ definition, rows, onEdit, onDelete }: ResourceTableProps) {
+export function ResourceTable({ definition, columns, rows, onEdit, onDelete }: ResourceTableProps) {
   return (
     <div className="table-shell">
       <table className="data-table">
         <thead>
           <tr>
-            <th className="checkbox-col"><input type="checkbox" /></th>
-            {definition.columns.map((column) => (
+            <th className="checkbox-col"><input type="checkbox" aria-label="Select all rows" /></th>
+            {columns.map((column) => (
               <th key={column.key}>{column.label}</th>
             ))}
             <th>Actions</th>
@@ -64,9 +64,11 @@ export function ResourceTable({ definition, rows, onEdit, onDelete }: ResourceTa
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={definition.columns.length + 2} className="empty-state-cell">
+              <td colSpan={columns.length + 2} className="empty-state-cell">
                 <div className="empty-table-state">
-                  <div className="empty-state-icon">?</div>
+                  <div className="empty-state-icon">
+                    <span className="empty-state-glyph" />
+                  </div>
                   <strong>No {definition.label.toLowerCase()} found.</strong>
                 </div>
               </td>
@@ -74,14 +76,18 @@ export function ResourceTable({ definition, rows, onEdit, onDelete }: ResourceTa
           ) : (
             rows.map((row) => (
               <tr key={String(row.id)}>
-                <td className="checkbox-col"><input type="checkbox" /></td>
-                {definition.columns.map((column) => (
+                <td className="checkbox-col"><input type="checkbox" aria-label={`Select row ${String(row.id)}`} /></td>
+                {columns.map((column) => (
                   <td key={column.key}>{formatCell(definition, column.key, row[column.key] ?? null)}</td>
                 ))}
                 <td>
                   <div className="row-actions">
-                    <button className="icon-button edit" onClick={() => onEdit(row)}>?</button>
-                    <button className="icon-button delete" onClick={() => onDelete(row)}>??</button>
+                    <button className="icon-button edit" onClick={() => onEdit(row)} aria-label="Edit row" type="button">
+                      <span className="icon-pencil" />
+                    </button>
+                    <button className="icon-button delete" onClick={() => onDelete(row)} aria-label="Delete row" type="button">
+                      <span className="icon-trash" />
+                    </button>
                   </div>
                 </td>
               </tr>

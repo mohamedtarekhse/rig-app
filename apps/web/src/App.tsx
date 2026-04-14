@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { fetchMe, getToken } from './lib/api';
@@ -297,7 +297,7 @@ function ProtectedApp({ user }: { user: SessionUser }) {
           <Route
             key={definition.key}
             path={`/${definition.path}`}
-            element={<ResourcePage definition={definition} />}
+            element={<ResourcePage definition={definition} user={user} />}
           />
         ))}
       </Route>

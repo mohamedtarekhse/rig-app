@@ -18,6 +18,7 @@ services:
       - mysql
     networks:
       - internal
+      - coolify
 
   mysql:
     image: mysql:8.0.36
@@ -41,3 +42,5 @@ volumes:
 networks:
   internal:
     driver: bridge
+  coolify:
+    external: true

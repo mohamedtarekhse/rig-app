@@ -95,7 +95,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
       </section>
 
       <section className="login-form-column">
-        <form className="login-form-card" onSubmit={handleSubmit}>
+        <form className="login-form-card page-entrance" onSubmit={handleSubmit}>
           <p className="overline blue">WELCOME BACK</p>
           <h2>Sign in to your account</h2>
           <p className="muted-copy">Enter your credentials - your role is detected automatically.</p>
@@ -139,3 +139,4 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
     </div>
   );
 }
+
