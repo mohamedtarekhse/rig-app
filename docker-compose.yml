@@ -11,6 +11,13 @@ services:
       DB_NAME: ${DB_NAME:-rigways}
       DB_USER: ${DB_USER:-rigways}
       DB_PASSWORD: ${DB_PASSWORD:-rigways_password}
+      UPLOADS_DIR: /app/uploads
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-8}
+      PUSH_SUBJECT: ${PUSH_SUBJECT:-mailto:admin@example.com}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    volumes:
+      - rigways_uploads:/app/uploads
     expose:
       - "8080"
     restart: unless-stopped
@@ -38,6 +45,7 @@ services:
 
 volumes:
   mysql_data_v2:
+  rigways_uploads:
 
 networks:
   internal:

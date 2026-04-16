@@ -1,4 +1,4 @@
-﻿import type { ResourceColumn, ResourceDefinition, ResourceRow } from '../lib/types';
+import type { ResourceColumn, ResourceDefinition, ResourceRow } from '../lib/types';
 
 type ResourceTableProps = {
   definition: ResourceDefinition;
@@ -8,8 +8,8 @@ type ResourceTableProps = {
   onDelete: (row: ResourceRow) => void;
 };
 
-function formatCell(definition: ResourceDefinition, key: string, value: string | number | null) {
-  const text = String(value ?? '—');
+function formatCell(definition: ResourceDefinition, key: string, value: string | number | null, row: ResourceRow) {
+  const text = String(value ?? '�');
 
   if (key === 'status' || key === 'approval_status') {
     const tone = text.toLowerCase().includes('active') || text.toLowerCase().includes('operation') || text.toLowerCase().includes('approved')
@@ -24,6 +24,10 @@ function formatCell(definition: ResourceDefinition, key: string, value: string |
 
   if (key === 'client_id' || key === 'asset_number' || key === 'cert_number' || key === 'inspector_number' || key === 'fl_id') {
     return <span className="code-pill">{text}</span>;
+  }
+
+  if (key === 'file_name' && row.file_url) {
+    return <a className="text-button small" href={String(row.file_url)} target="_blank" rel="noreferrer">{text}</a>;
   }
 
   if (definition.variant === 'inspectors' && key === 'name') {
@@ -49,6 +53,8 @@ function formatCell(definition: ResourceDefinition, key: string, value: string |
 }
 
 export function ResourceTable({ definition, columns, rows, onEdit, onDelete }: ResourceTableProps) {
+  const allowActions = definition.variant !== 'files';
+
   return (
     <div className="table-shell">
       <table className="data-table">
@@ -58,13 +64,13 @@ export function ResourceTable({ definition, columns, rows, onEdit, onDelete }: R
             {columns.map((column) => (
               <th key={column.key}>{column.label}</th>
             ))}
-            <th>Actions</th>
+            {allowActions ? <th>Actions</th> : null}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={columns.length + 2} className="empty-state-cell">
+              <td colSpan={columns.length + (allowActions ? 2 : 1)} className="empty-state-cell">
                 <div className="empty-table-state">
                   <div className="empty-state-icon">
                     <span className="empty-state-glyph" />
@@ -78,18 +84,20 @@ export function ResourceTable({ definition, columns, rows, onEdit, onDelete }: R
               <tr key={String(row.id)}>
                 <td className="checkbox-col"><input type="checkbox" aria-label={`Select row ${String(row.id)}`} /></td>
                 {columns.map((column) => (
-                  <td key={column.key}>{formatCell(definition, column.key, row[column.key] ?? null)}</td>
+                  <td key={column.key}>{formatCell(definition, column.key, row[column.key] ?? null, row)}</td>
                 ))}
-                <td>
-                  <div className="row-actions">
-                    <button className="icon-button edit" onClick={() => onEdit(row)} aria-label="Edit row" type="button">
-                      <span className="icon-pencil" />
-                    </button>
-                    <button className="icon-button delete" onClick={() => onDelete(row)} aria-label="Delete row" type="button">
-                      <span className="icon-trash" />
-                    </button>
-                  </div>
-                </td>
+                {allowActions ? (
+                  <td>
+                    <div className="row-actions">
+                      <button className="icon-button edit" onClick={() => onEdit(row)} aria-label="Edit row" type="button">
+                        <span className="icon-pencil" />
+                      </button>
+                      <button className="icon-button delete" onClick={() => onDelete(row)} aria-label="Delete row" type="button">
+                        <span className="icon-trash" />
+                      </button>
+                    </div>
+                  </td>
+                ) : null}
               </tr>
             ))
           )}

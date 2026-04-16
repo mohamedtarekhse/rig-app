@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiRouter } from './api/routes.js';
 import { env } from './config/env.js';
-import { ensureBootstrapData, ensureSchema, waitForDatabase } from './db/bootstrap.js';
+import { ensureBootstrapData, ensureSchema, ensureSchemaCompatibility, waitForDatabase } from './db/bootstrap.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,9 +19,10 @@ async function start() {
   const app = express();
 
   app.use(cors());
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: `${env.maxUploadSizeMb + 2}mb` }));
 
   app.use('/api', apiRouter);
+  app.use('/uploads', express.static(env.uploadsDir));
   app.use(express.static(staticRoot));
   app.get('*', (_request, response) => {
     response.sendFile(path.join(staticRoot, 'index.html'));
@@ -35,6 +36,7 @@ async function start() {
   try {
     await waitForDatabase();
     await ensureSchema();
+    await ensureSchemaCompatibility();
     await ensureBootstrapData();
     console.log('Database bootstrap completed.');
   } catch (error) {

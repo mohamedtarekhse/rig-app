@@ -2,6 +2,12 @@ import type { DashboardSummary, ResourceRow, SessionUser } from './types';
 
 const TOKEN_KEY = 'rigways_token';
 
+type CertificateUploadPayload = {
+  fileName: string;
+  mimeType: string;
+  contentBase64: string;
+};
+
 export function getToken() {
   return window.localStorage.getItem(TOKEN_KEY);
 }
@@ -16,13 +22,19 @@ export function clearToken() {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
+  const headers = new Headers(init?.headers ?? {});
+
+  if (!headers.has('Content-Type') && init?.body !== undefined) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetch(path, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   if (response.status === 401) {
@@ -94,4 +106,48 @@ export async function updateResource(path: string, id: string | number, body: Re
 
 export async function deleteResource(path: string, id: string | number) {
   return request<{ deleted: true }>(`/api/${path}/${id}`, { method: 'DELETE' });
+}
+
+export async function uploadCertificateFile(id: string | number, payload: CertificateUploadPayload) {
+  return request<ResourceRow>(`/api/certificates/${id}/upload`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchPushPublicKey() {
+  return request<{ publicKey: string }>('/api/push/public-key');
+}
+
+export async function savePushSubscription(subscription: PushSubscriptionJSON) {
+  return request<{ subscribed: true }>('/api/push/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify({ subscription }),
+  });
+}
+
+export async function removePushSubscription(endpoint?: string) {
+  return request<{ deleted: true }>('/api/push/subscriptions', {
+    method: 'DELETE',
+    body: JSON.stringify(endpoint ? { endpoint } : {}),
+  });
+}
+
+export async function sendPushTest(broadcast = false) {
+  return request<{ sent: true; recipients: number }>('/api/push/test', {
+    method: 'POST',
+    body: JSON.stringify({ broadcast }),
+  });
+}
+
+export async function markAllNotificationsRead() {
+  return request<{ updated: true }>('/api/notifications/mark-all-read', {
+    method: 'POST',
+  });
+}
+
+export async function clearAllNotifications() {
+  return request<{ deleted: true }>('/api/notifications', {
+    method: 'DELETE',
+  });
 }

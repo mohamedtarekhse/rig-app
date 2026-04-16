@@ -45,6 +45,31 @@ export async function ensureSchema() {
     await pool.query(sql);
     console.log('Database schema ensured from init.sql.');
 }
+export async function ensureSchemaCompatibility() {
+    await pool.query(`
+    ALTER TABLE certificates
+      ADD COLUMN IF NOT EXISTS file_name VARCHAR(255) NULL,
+      ADD COLUMN IF NOT EXISTS file_path VARCHAR(512) NULL,
+      ADD COLUMN IF NOT EXISTS file_url VARCHAR(512) NULL,
+      ADD COLUMN IF NOT EXISTS file_size BIGINT UNSIGNED NULL,
+      ADD COLUMN IF NOT EXISTS mime_type VARCHAR(120) NULL,
+      ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP NULL DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS uploaded_by BIGINT UNSIGNED NULL
+  `);
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      endpoint VARCHAR(768) NOT NULL UNIQUE,
+      subscription_json JSON NOT NULL,
+      user_agent VARCHAR(255) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_push_subscriptions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+    console.log('Database compatibility migrations ensured.');
+}
 export async function ensureBootstrapData() {
     const [userRows] = await pool.query('SELECT COUNT(*) AS count FROM users');
     if ((userRows[0]?.count ?? 0) > 0) {

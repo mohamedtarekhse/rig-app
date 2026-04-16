@@ -1,6 +1,6 @@
-ï»¿import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useState, startTransition } from 'react';
+import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useState, startTransition } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { createResource, deleteResource, fetchResource, updateResource } from '../lib/api';
+import { clearAllNotifications, createResource, deleteResource, fetchPushPublicKey, fetchResource, markAllNotificationsRead, removePushSubscription, savePushSubscription, sendPushTest, updateResource, uploadCertificateFile } from '../lib/api';
 import { ResourceTable } from '../components/ResourceTable';
 import {
   daysUntil,
@@ -41,6 +41,14 @@ type AssetImportSummary = {
   failures: Array<{ rowNumber: number; assetLabel: string; message: string }>;
 };
 
+
+type CertificateUploadDraft = {
+  fileName: string;
+  mimeType: string;
+  contentBase64: string;
+  size: number;
+};
+
 const ASSET_REQUIRED_COLUMNS = ['asset_number', 'name', 'asset_type', 'status', 'client_id', 'functional_location', 'serial_number'] as const;
 
 function buildInitialForm(definition: ResourceDefinition) {
@@ -48,7 +56,7 @@ function buildInitialForm(definition: ResourceDefinition) {
 }
 
 function safeText(value: string | number | null | undefined) {
-  return String(value ?? 'â€”');
+  return String(value ?? '—');
 }
 
 function cleanText(value: string | number | null | undefined) {
@@ -181,6 +189,25 @@ function normalizeAssetImportRecord(record: Record<string, string>) {
   };
 }
 
+async function readFileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Unable to read the selected file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const normalized = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(normalized);
+  return Uint8Array.from(rawData, (character) => character.charCodeAt(0));
+}
 export function ResourcePage({ definition, user }: ResourcePageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<ResourceRow[]>([]);
@@ -213,6 +240,11 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
   const [importFileName, setImportFileName] = useState('');
   const [importPreviewRows, setImportPreviewRows] = useState<AssetImportPreviewRow[]>([]);
   const [importSummary, setImportSummary] = useState<AssetImportSummary | null>(null);
+  const [certificateUpload, setCertificateUpload] = useState<CertificateUploadDraft | null>(null);
+  const [certificateExistingFile, setCertificateExistingFile] = useState<{ name: string; url: string; size?: string } | null>(null);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
 
   useEffect(() => {
     setQuery(readParam(searchParams, 'q'));
@@ -322,6 +354,16 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     window.localStorage.setItem(getColumnStorageKey(user.id, definition.path), JSON.stringify(visibleColumnKeys));
   }, [definition.path, user.id, visibleColumnKeys]);
 
+  useEffect(() => {
+    if (definition.variant !== 'notifications') return;
+
+    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    setPushSupported(supported);
+    if (!supported) return;
+
+    void syncPushState();
+  }, [definition.variant]);
+
   const visibleColumns = useMemo(() => {
     const columns = definition.columns.filter((column) => visibleColumnKeys.includes(column.key));
     return columns.length ? columns : [definition.columns[0]];
@@ -424,12 +466,20 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
   function resetForm() {
     setEditingId(null);
     setForm(buildInitialForm(definition));
+    setCertificateUpload(null);
+    setCertificateExistingFile(null);
     if (definition.variant !== 'jobs') setFormOpen(false);
   }
 
   function beginEdit(row: ResourceRow) {
     setEditingId(String(row.id));
     setFormOpen(true);
+    setCertificateUpload(null);
+    setCertificateExistingFile(definition.variant === 'certificates' && row.file_name && row.file_url ? {
+      name: String(row.file_name),
+      url: String(row.file_url),
+      size: row.file_size ? String(row.file_size) : undefined,
+    } : null);
     setForm(Object.fromEntries(definition.fields.map((field) => [field.key, String(row[field.key] ?? '')])));
   }
 
@@ -439,8 +489,10 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     setError('');
 
     try {
-      if (editingId) await updateResource(definition.path, editingId, form);
-      else await createResource(definition.path, form);
+      const saved = editingId ? await updateResource(definition.path, editingId, form) : await createResource(definition.path, form);
+      if (definition.variant === 'certificates' && certificateUpload) {
+        await uploadCertificateFile(String(saved.id), certificateUpload);
+      }
       await refreshRows();
       resetForm();
     } catch (caught) {
@@ -467,7 +519,131 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     }
   }
 
-  function handleExportCsv() {
+  async function handleCertificateFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const contentBase64 = await readFileAsBase64(file);
+      setCertificateUpload({
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        contentBase64,
+        size: file.size,
+      });
+      setError('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to read the selected file.');
+    } finally {
+      event.target.value = '';
+    }
+  }
+
+  async function syncPushState() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    setPushEnabled(Boolean(subscription));
+  }
+
+  async function enablePushNotifications() {
+    if (!pushSupported) {
+      setError('This browser does not support service workers and push notifications.');
+      return;
+    }
+
+    setPushBusy(true);
+    setError('');
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        throw new Error('Notification permission was not granted.');
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      const { publicKey } = await fetchPushPublicKey();
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing ?? await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+
+      await savePushSubscription(subscription.toJSON());
+      setPushEnabled(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to enable push notifications.');
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function resetPushNotifications() {
+    setPushBusy(true);
+    setError('');
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      const endpoint = subscription?.endpoint;
+      if (endpoint) {
+        await removePushSubscription(endpoint);
+        await subscription?.unsubscribe();
+      } else {
+        await removePushSubscription();
+      }
+      setPushEnabled(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to reset push notifications.');
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function handleMarkAllRead() {
+    setBusy(true);
+    setError('');
+
+    try {
+      await markAllNotificationsRead();
+      setRows((current) => current.map((row) => ({ ...row, is_read: 1 })));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to update notifications.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleClearNotifications() {
+    if (!window.confirm('Clear all notifications for your account?')) return;
+
+    setBusy(true);
+    setError('');
+
+    try {
+      await clearAllNotifications();
+      setRows([]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to clear notifications.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSendPush(isBroadcast: boolean) {
+    setPushBusy(true);
+    setError('');
+
+    try {
+      await sendPushTest(isBroadcast);
+      await refreshRows();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to send a push notification.');
+    } finally {
+      setPushBusy(false);
+    }
+  }
+function handleExportCsv() {
     exportRowsToCsv(definition.title, visibleColumns, filteredRows);
   }
 
@@ -671,6 +847,26 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
           ))}
         </div>
 
+        {definition.variant === 'certificates' ? (
+          <div className="content-card">
+            <div className="panel-title-row">
+              <div>
+                <h3>Certificate Attachment</h3>
+                <p>Upload the certificate file to the Coolify-backed storage volume.</p>
+              </div>
+            </div>
+            <label className="upload-dropzone">
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={handleCertificateFileChange} hidden />
+              <div className="upload-dropzone-inner">
+                <div className="upload-dropzone-icon">?</div>
+                <strong>{certificateUpload ? certificateUpload.fileName : 'Choose certificate file'}</strong>
+                <span>{certificateUpload ? `${Math.round(certificateUpload.size / 1024)} KB selected` : 'Accepts PDF, image, and Office files'}</span>
+              </div>
+            </label>
+            {certificateExistingFile ? <p className="notifications-disclaimer">Current file: <a href={certificateExistingFile.url} target="_blank" rel="noreferrer">{certificateExistingFile.name}</a></p> : null}
+          </div>
+        ) : null}
+
         {error ? <p className="error-banner">{error}</p> : null}
 
         <div className="form-actions">
@@ -680,8 +876,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
       </form>
     );
   }
-
-  async function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+async function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -834,7 +1029,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
               </div>
               <div className="client-footer">
                 <div><span>{safeText(row.contact)}</span><small>{safeText(row.email)}</small></div>
-                <div><span>Contract ends</span><small>â€”</small></div>
+                <div><span>Contract ends</span><small>—</small></div>
               </div>
             </article>
           ))}
@@ -849,23 +1044,23 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
         <div className="page-actions-row notifications-top">
           <div><h2>{definition.title}</h2><p>{definition.subtitle}</p></div>
           <div className="toolbar-actions wide-gap">
-            <button className="soft-button" type="button" disabled title="Frontend preview only">Reset Push</button>
-            <button className="soft-button" type="button" disabled title="Frontend preview only">Mark All Read</button>
-            <button className="soft-button" type="button" disabled title="Frontend preview only">Clear All</button>
+            <button className="soft-button" type="button" onClick={resetPushNotifications} disabled={!pushSupported || pushBusy}>Reset Push</button>
+            <button className="soft-button" type="button" onClick={handleMarkAllRead} disabled={busy || filteredRows.length === 0}>Mark All Read</button>
+            <button className="soft-button" type="button" onClick={handleClearNotifications} disabled={busy || filteredRows.length === 0}>Clear All</button>
             {renderExportButtons()}
-            <button className="submit-button compact" type="button" disabled title="Frontend preview only">Send Alerts by Email</button>
-            <button className="soft-button" type="button" disabled title="Frontend preview only">Check Health</button>
+            <button className="submit-button compact" type="button" onClick={() => handleSendPush(false)} disabled={pushBusy}>Send Test Push</button>
+            <button className="soft-button" type="button" onClick={() => handleSendPush(true)} disabled={pushBusy || user.role !== 'admin'}>Push All</button>
           </div>
         </div>
-        <p className="notifications-disclaimer">Operational notification actions are shown here for layout parity, but they are disabled in this frontend-only build.</p>
+        <p className="notifications-disclaimer">Browser push is connected to the backend. Add stable VAPID keys in Coolify so subscriptions survive restarts.</p>
         <section className="alert-banner-card">
-          <div><h3>Alert Configuration</h3><p>Configure when expiry alerts are triggered for certificates</p></div>
+          <div><h3>Alert Configuration</h3><p>Certificate uploads and status changes now create notifications automatically.</p></div>
           <div className="alert-controls">
-            <label><span>Critical (Days Before)</span><input defaultValue="7" /></label>
-            <label><span>Warning (Days Before)</span><input defaultValue="14" /></label>
-            <label><span>Notice (Days Before)</span><input defaultValue="30" /></label>
-            <label><span>Email Digest</span><select defaultValue="Daily"><option>Daily</option></select></label>
-            <button className="submit-button compact" type="button">Save Config</button>
+            <label><span>Critical (Days Before)</span><input defaultValue="7" readOnly /></label>
+            <label><span>Warning (Days Before)</span><input defaultValue="14" readOnly /></label>
+            <label><span>Notice (Days Before)</span><input defaultValue="30" readOnly /></label>
+            <label><span>Push State</span><select value={pushEnabled ? 'Enabled' : 'Disabled'} readOnly><option>{pushEnabled ? 'Enabled' : 'Disabled'}</option></select></label>
+            <button className="submit-button compact" type="button" onClick={enablePushNotifications} disabled={!pushSupported || pushBusy || pushEnabled}>{pushEnabled ? 'Enabled' : 'Enable Push'}</button>
           </div>
         </section>
         {renderStats()}
@@ -882,10 +1077,11 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
             </div>
           </div>
           <div className="toggle-row">
-            <div className="toggle-card"><span className="toggle on" /> <div><strong>Email Notifications</strong><p>Receive digest emails for expiry alerts</p></div></div>
-            <div className="toggle-card"><span className="toggle" /> <div><strong>Push Notifications</strong><p>Enable browser push alerts</p></div></div>
-            <button className="soft-button" type="button" disabled title="Frontend preview only">Test Me</button>
-            <button className="soft-button" type="button" disabled title="Frontend preview only">Test All</button>
+            <div className="toggle-card"><span className="toggle on" /> <div><strong>In-App Notifications</strong><p>Stored in MySQL and shown inside the dashboard</p></div></div>
+            <div className="toggle-card"><span className={`toggle ${pushEnabled ? 'on' : ''}`} /> <div><strong>Push Notifications</strong><p>{pushSupported ? (pushEnabled ? 'This browser is subscribed for push alerts' : 'Enable browser push alerts for approvals and uploads') : 'This browser does not support push notifications'}</p></div></div>
+            <button className="soft-button" type="button" onClick={enablePushNotifications} disabled={!pushSupported || pushBusy || pushEnabled}>{pushEnabled ? 'Enabled' : 'Enable Push'}</button>
+            <button className="soft-button" type="button" onClick={() => handleSendPush(false)} disabled={pushBusy}>Test Me</button>
+            <button className="soft-button" type="button" onClick={() => handleSendPush(true)} disabled={pushBusy || user.role !== 'admin'}>Test All</button>
           </div>
           <div className="notification-list">
             {filteredRows.length === 0 ? (
@@ -899,7 +1095,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
                 <div className="notification-content">
                   <div className="notification-title-row">
                     <strong>{safeText(row.title)}</strong>
-                    <button className="text-button small" type="button" onClick={() => handleDelete(row)}>Ã—</button>
+                    <button className="text-button small" type="button" onClick={() => handleDelete(row)}>×</button>
                   </div>
                   <p>{safeText(row.body)}</p>
                   <div className="notification-tags">
@@ -914,8 +1110,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
       </>
     );
   }
-
-  function renderFiles() {
+function renderFiles() {
     return (
       <>
         <div className="page-title-block files-title"><h2>{definition.title}</h2></div>
@@ -950,7 +1145,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
         <div className="modal-card column-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
           <div className="modal-header">
             <div><h3>Visible Columns</h3><p>Saved in this browser for {user.name}.</p></div>
-            <button className="icon-button" type="button" onClick={() => setColumnPickerOpen(false)} aria-label="Close modal">Ã—</button>
+            <button className="icon-button" type="button" onClick={() => setColumnPickerOpen(false)} aria-label="Close modal">×</button>
           </div>
           <div className="column-picker-list">
             {definition.columns.map((column) => {
@@ -980,7 +1175,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
         <div className="modal-card import-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
           <div className="import-modal-topbar">
             <div><h3>Import Assets</h3><p>Upload CSV or Excel, review duplicates, then import.</p></div>
-            <button className="icon-button" type="button" onClick={() => setImportOpen(false)} aria-label="Close import modal">Ã—</button>
+            <button className="icon-button" type="button" onClick={() => setImportOpen(false)} aria-label="Close import modal">×</button>
           </div>
           <div className="import-modal-body">
             <div className="import-helper-box">
@@ -992,7 +1187,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
             <label className="upload-dropzone">
               <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportFileChange} hidden />
               <div className="upload-dropzone-inner">
-                <div className="upload-dropzone-icon">â‡ª</div>
+                <div className="upload-dropzone-icon">?</div>
                 <strong>{importFileName ? importFileName : 'Click to browse or drag & drop'}</strong>
                 <span>Accepts CSV (.csv) or Excel (.xlsx, .xls)</span>
               </div>
@@ -1052,7 +1247,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
                           <td>
                             {row.existing ? (
                               <select value={row.choice} onChange={(event) => updatePreviewChoice(row.rowNumber, event.target.value as DuplicateChoice)}>
-                                <option value="unresolved">Chooseâ€¦</option>
+                                <option value="unresolved">Choose…</option>
                                 <option value="update">Update existing</option>
                                 <option value="skip">Skip row</option>
                               </select>
@@ -1099,3 +1294,12 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     </>
   );
 }
+
+
+
+
+
+
+
+
+

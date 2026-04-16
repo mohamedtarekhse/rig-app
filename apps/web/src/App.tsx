@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { fetchMe, getToken } from './lib/api';
@@ -71,6 +71,7 @@ export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
       { key: 'issued_by', label: 'Issued By' },
       { key: 'expiry_date', label: 'Expiry' },
       { key: 'approval_status', label: 'Approval' },
+      { key: 'file_name', label: 'Attachment' },
       { key: 'client_id', label: 'Client' },
     ],
     fields: [
@@ -136,7 +137,7 @@ export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
     subtitle: 'Certificate expiry alerts, approval updates, and system events',
     variant: 'notifications',
     accent: 'blue',
-    addLabel: 'Send Alerts by Email',
+    addLabel: 'Send Push Alert',
     stats: [
       { label: 'Total', key: 'total', tone: 'blue' },
       { label: 'Unread', key: 'unread', tone: 'red' },
@@ -163,12 +164,13 @@ export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
     navTitle: 'Asset & Certificate Management',
     path: 'files',
     title: 'Files Explorer',
-    subtitle: 'Global file explorer',
+    subtitle: 'Uploaded certificate files across the platform',
     variant: 'files',
     accent: 'amber',
     addLabel: 'Apply',
     columns: [
       { key: 'job_id', label: 'Job' },
+      { key: 'client_id', label: 'Client' },
       { key: 'cert_type', label: 'Cert Type' },
       { key: 'file_name', label: 'Filename' },
       { key: 'file_size', label: 'Size' },
