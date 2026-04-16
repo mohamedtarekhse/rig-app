@@ -43,9 +43,8 @@ type AssetImportSummary = {
 
 
 type CertificateUploadDraft = {
+  file: File;
   fileName: string;
-  mimeType: string;
-  contentBase64: string;
   size: number;
 };
 
@@ -491,7 +490,7 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     try {
       const saved = editingId ? await updateResource(definition.path, editingId, form) : await createResource(definition.path, form);
       if (definition.variant === 'certificates' && certificateUpload) {
-        await uploadCertificateFile(String(saved.id), certificateUpload);
+        await uploadCertificateFile(String(saved.id), certificateUpload.file);
       }
       await refreshRows();
       resetForm();
@@ -1294,6 +1293,7 @@ function renderFiles() {
     </>
   );
 }
+
 
 
 

@@ -2,12 +2,6 @@ import type { DashboardSummary, ResourceRow, SessionUser } from './types';
 
 const TOKEN_KEY = 'rigways_token';
 
-type CertificateUploadPayload = {
-  fileName: string;
-  mimeType: string;
-  contentBase64: string;
-};
-
 export function getToken() {
   return window.localStorage.getItem(TOKEN_KEY);
 }
@@ -23,8 +17,9 @@ export function clearToken() {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers = new Headers(init?.headers ?? {});
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
 
-  if (!headers.has('Content-Type') && init?.body !== undefined) {
+  if (!headers.has('Content-Type') && init?.body !== undefined && !isFormData) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -108,10 +103,13 @@ export async function deleteResource(path: string, id: string | number) {
   return request<{ deleted: true }>(`/api/${path}/${id}`, { method: 'DELETE' });
 }
 
-export async function uploadCertificateFile(id: string | number, payload: CertificateUploadPayload) {
+export async function uploadCertificateFile(id: string | number, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
   return request<ResourceRow>(`/api/certificates/${id}/upload`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: formData,
   });
 }
 
