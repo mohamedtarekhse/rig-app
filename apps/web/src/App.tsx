@@ -65,7 +65,7 @@ export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
     ],
     columns: [
       { key: 'cert_number', label: 'Cert ID' },
-      { key: 'asset_id', label: 'Asset ID' },
+      { key: 'asset_id', label: 'Asset number or ID' },
       { key: 'name', label: 'Certificate Name' },
       { key: 'cert_type', label: 'Type' },
       { key: 'issued_by', label: 'Issued By' },
@@ -83,7 +83,7 @@ export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
         type: 'select',
         options: ['CAT III', 'CAT IV', 'ORIGINAL COC', 'LOAD TEST', 'LIFTING', 'NDT', 'TUBULAR'],
       },
-      { key: 'asset_id', label: 'Asset ID' },
+      { key: 'asset_id', label: 'Asset number or ID' },
       { key: 'client_id', label: 'Client code' },
       { key: 'issued_by', label: 'Issued by' },
       { key: 'issue_date', label: 'Issue date', type: 'date' },
@@ -341,3 +341,6 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+
+
