@@ -808,7 +808,7 @@ function handleExportCsv() {
             <button className="density-toggle" type="button">K</button>
           </div>
         </div>
-        <ResourceTable definition={definition} columns={visibleColumns} rows={filteredRows} onEdit={beginEdit} onDelete={handleDelete} />
+        <ResourceTable definition={definition} columns={visibleColumns} rows={filteredRows} onEdit={beginEdit} onDelete={handleDelete} userRole={user.role} />
       </section>
     );
   }

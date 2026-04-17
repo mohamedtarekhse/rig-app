@@ -1,4 +1,4 @@
-import type { DashboardSummary, ResourceRow, SessionUser } from './types';
+import type { DashboardSummary, ResourceRow, SessionUser, AssetDetail, CertificateWithExpiry, TransferRecord, InspectorWithUser } from './types';
 
 const TOKEN_KEY = 'rigways_token';
 
@@ -148,4 +148,45 @@ export async function clearAllNotifications() {
   return request<{ deleted: true }>('/api/notifications', {
     method: 'DELETE',
   });
+}
+
+export async function fetchAssetDetail(assetId: number) {
+  return request<AssetDetail>(`/api/assets/${assetId}/detail`);
+}
+
+export async function fetchCertificateTransfers(certificateId: number) {
+  return request<TransferRecord[]>(`/api/certificates/${certificateId}/transfers`);
+}
+
+export async function transferCertificate(certificateId: number, to_client_id: string, to_functional_location?: string | null, notes?: string) {
+  return request<ResourceRow>(`/api/certificates/${certificateId}/transfer`, {
+    method: 'POST',
+    body: JSON.stringify({ to_client_id, to_functional_location, notes }),
+  });
+}
+
+export async function fetchInspectorsWithUsers() {
+  return request<InspectorWithUser[]>('/api/inspectors/with-users');
+}
+
+export async function fetchInspectorCertificates(inspectorId: number) {
+  return request<CertificateWithExpiry[]>(`/api/certificates/inspector/${inspectorId}`);
+}
+
+export async function downloadCertificateLog(assetId: number, format: 'pdf' | 'csv') {
+  const response = await fetch('/api/certificates/log/download', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getToken()}`,
+    },
+    body: JSON.stringify({ asset_id: assetId, format }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Request failed with status ${response.status}.`);
+  }
+
+  return response.blob();
 }
