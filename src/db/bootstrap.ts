@@ -7,6 +7,8 @@ import { pool } from './pool.js';
 
 type CountRow = RowDataPacket & { count: number };
 
+type ExistsRow = RowDataPacket & { count: number };
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const schemaCandidates = [
@@ -28,6 +30,30 @@ async function loadSchemaSql() {
   }
 
   throw new Error(`Schema file not found. Looked in: ${schemaCandidates.join(', ')}`);
+}
+
+async function columnExists(tableName: string, columnName: string) {
+  const [rows] = await pool.query<ExistsRow[]>(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+    `,
+    [tableName, columnName],
+  );
+
+  return (rows[0]?.count ?? 0) > 0;
+}
+
+async function addColumnIfMissing(tableName: string, columnName: string, definition: string) {
+  const exists = await columnExists(tableName, columnName);
+  if (exists) {
+    return;
+  }
+
+  await pool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }
 
 export async function waitForDatabase(retries = 120, delayMs = 2000) {
@@ -56,16 +82,13 @@ export async function ensureSchema() {
 }
 
 export async function ensureSchemaCompatibility() {
-  await pool.query(`
-    ALTER TABLE certificates
-      ADD COLUMN IF NOT EXISTS file_name VARCHAR(255) NULL,
-      ADD COLUMN IF NOT EXISTS file_path VARCHAR(512) NULL,
-      ADD COLUMN IF NOT EXISTS file_url VARCHAR(512) NULL,
-      ADD COLUMN IF NOT EXISTS file_size BIGINT UNSIGNED NULL,
-      ADD COLUMN IF NOT EXISTS mime_type VARCHAR(120) NULL,
-      ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP NULL DEFAULT NULL,
-      ADD COLUMN IF NOT EXISTS uploaded_by BIGINT UNSIGNED NULL
-  `);
+  await addColumnIfMissing('certificates', 'file_name', 'VARCHAR(255) NULL');
+  await addColumnIfMissing('certificates', 'file_path', 'VARCHAR(512) NULL');
+  await addColumnIfMissing('certificates', 'file_url', 'VARCHAR(512) NULL');
+  await addColumnIfMissing('certificates', 'file_size', 'BIGINT UNSIGNED NULL');
+  await addColumnIfMissing('certificates', 'mime_type', 'VARCHAR(120) NULL');
+  await addColumnIfMissing('certificates', 'uploaded_at', 'TIMESTAMP NULL DEFAULT NULL');
+  await addColumnIfMissing('certificates', 'uploaded_by', 'BIGINT UNSIGNED NULL');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
