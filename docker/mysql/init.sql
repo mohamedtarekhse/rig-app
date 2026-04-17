@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS certificates (
   cert_type VARCHAR(120) NOT NULL,
   asset_id BIGINT UNSIGNED NOT NULL,
   client_id VARCHAR(32) NULL,
+  functional_location VARCHAR(64) NULL,
+  inspector_id BIGINT UNSIGNED NULL,
   issued_by VARCHAR(255) NOT NULL,
   issue_date DATE NOT NULL,
   expiry_date DATE NOT NULL,
@@ -92,8 +94,44 @@ CREATE TABLE IF NOT EXISTS certificates (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_cert_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
-  CONSTRAINT fk_cert_client FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE SET NULL
+  CONSTRAINT fk_cert_client FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE SET NULL,
+  CONSTRAINT fk_cert_inspector FOREIGN KEY (inspector_id) REFERENCES inspectors(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS certificate_transfers (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  certificate_id BIGINT UNSIGNED NOT NULL,
+  from_client_id VARCHAR(32) NULL,
+  to_client_id VARCHAR(32) NOT NULL,
+  from_functional_location VARCHAR(64) NULL,
+  to_functional_location VARCHAR(64) NULL,
+  transferred_by BIGINT UNSIGNED NOT NULL,
+  transfer_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT NULL,
+  CONSTRAINT fk_transfer_cert FOREIGN KEY (certificate_id) REFERENCES certificates(id) ON DELETE CASCADE,
+  CONSTRAINT fk_transfer_from_client FOREIGN KEY (from_client_id) REFERENCES clients(client_id) ON DELETE SET NULL,
+  CONSTRAINT fk_transfer_to_client FOREIGN KEY (to_client_id) REFERENCES clients(client_id) ON DELETE SET NULL,
+  CONSTRAINT fk_transfer_by_user FOREIGN KEY (transferred_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS asset_transfers (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  asset_id BIGINT UNSIGNED NOT NULL,
+  from_client_id VARCHAR(32) NULL,
+  to_client_id VARCHAR(32) NOT NULL,
+  from_functional_location VARCHAR(64) NULL,
+  to_functional_location VARCHAR(64) NOT NULL,
+  transferred_by BIGINT UNSIGNED NOT NULL,
+  transfer_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT NULL,
+  CONSTRAINT fk_asset_transfer_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+  CONSTRAINT fk_asset_transfer_from_client FOREIGN KEY (from_client_id) REFERENCES clients(client_id) ON DELETE SET NULL,
+  CONSTRAINT fk_asset_transfer_to_client FOREIGN KEY (to_client_id) REFERENCES clients(client_id) ON DELETE SET NULL,
+  CONSTRAINT fk_asset_transfer_by_user FOREIGN KEY (transferred_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE users ADD COLUMN inspector_id BIGINT UNSIGNED NULL AFTER role;
+ALTER TABLE users ADD CONSTRAINT fk_users_inspector FOREIGN KEY (inspector_id) REFERENCES inspectors(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS jobs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

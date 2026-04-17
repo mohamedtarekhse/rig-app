@@ -16,6 +16,70 @@ type UserRow = RowDataPacket & { id: number };
 type PushSubscriptionRow = RowDataPacket & { id: number; endpoint: string; subscription_json: string };
 type CertificateFileRow = RowDataPacket & { file_path: string | null };
 type AssetLookupRow = RowDataPacket & { id: number; asset_number: string; client_id: string | null };
+type AssetDetailRow = RowDataPacket & {
+  id: number;
+  asset_number: string;
+  name: string;
+  asset_type: string;
+  status: string;
+  client_id: string | null;
+  functional_location: string | null;
+  serial_number: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  description: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+type CertificateDetailRow = RowDataPacket & {
+  id: number;
+  cert_number: string;
+  name: string;
+  cert_type: string;
+  asset_id: number;
+  client_id: string | null;
+  functional_location: string | null;
+  inspector_id: number | null;
+  inspector_name: string | null;
+  issued_by: string;
+  issue_date: string;
+  expiry_date: string;
+  approval_status: string;
+  notes: string | null;
+  file_name: string | null;
+  file_url: string | null;
+  file_size: number | null;
+  mime_type: string | null;
+  uploaded_at: string | null;
+  created_at: string;
+  updated_at: string;
+  days_until_expiry: number;
+};
+type TransferRow = RowDataPacket & {
+  id: number;
+  from_client_id: string | null;
+  to_client_id: string | null;
+  from_functional_location: string | null;
+  to_functional_location: string | null;
+  transferred_by: number;
+  transfer_date: string;
+  notes: string | null;
+  user_name: string | null;
+};
+type InspectorWithUser = RowDataPacket & {
+  id: number;
+  inspector_number: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  status: string;
+  experience_years: number | null;
+  user_id: number | null;
+  username: string | null;
+};
+type InspectorWithUserRow = InspectorWithUser;
 
 type ResourceConfig = {
   table: string;
@@ -58,8 +122,8 @@ const resourceConfigs: Record<string, ResourceConfig> = {
   certificates: {
     table: 'certificates',
     searchColumns: ['cert_number', 'name', 'cert_type', 'client_id', 'issued_by', 'approval_status', 'file_name'],
-    listColumns: ['id', 'cert_number', 'name', 'cert_type', 'asset_id', 'client_id', 'issued_by', 'issue_date', 'expiry_date', 'approval_status', 'notes', 'file_name', 'file_url', 'file_size', 'mime_type', 'uploaded_at', 'created_at', 'updated_at'],
-    writableColumns: ['cert_number', 'name', 'cert_type', 'asset_id', 'client_id', 'issued_by', 'issue_date', 'expiry_date', 'approval_status', 'notes'],
+    listColumns: ['id', 'cert_number', 'name', 'cert_type', 'asset_id', 'client_id', 'functional_location', 'inspector_id', 'issued_by', 'issue_date', 'expiry_date', 'approval_status', 'notes', 'file_name', 'file_url', 'file_size', 'mime_type', 'uploaded_at', 'created_at', 'updated_at'],
+    writableColumns: ['cert_number', 'name', 'cert_type', 'asset_id', 'client_id', 'functional_location', 'inspector_id', 'issued_by', 'issue_date', 'expiry_date', 'approval_status', 'notes'],
     defaultOrder: 'created_at DESC',
   },
   jobs: {
@@ -319,6 +383,27 @@ function resourceRouter(resource: string, config: ResourceConfig) {
 
       if (resource === 'certificates') {
         payload = await resolveCertificatePayload(payload);
+        
+        const [existingRows] = await pool.query<RowDataPacket[]>(
+          'SELECT created_at, uploaded_by FROM certificates WHERE id = ? LIMIT 1',
+          [request.params.id],
+        );
+        
+        if (existingRows.length > 0) {
+          const existing = existingRows[0];
+          const createdAt = new Date(existing.created_at);
+          const now = new Date();
+          const hoursSinceCreation = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+          
+          const userRole = request.user?.role;
+          const isOwner = existing.uploaded_by === request.user?.sub;
+          
+          if (hoursSinceCreation > 24 && userRole !== 'admin') {
+            if (!isOwner || userRole !== 'admin') {
+              return fail(response, 403, 'Editing is only allowed within 24 hours of creation. Please contact an admin for approval.');
+            }
+          }
+        }
       }
 
       const fields = Object.keys(payload).map((column) => `${column} = ?`);
@@ -401,6 +486,9 @@ apiRouter.get('/dashboard/summary', requireAuth, async (_request, response) => {
   const [notifications] = await pool.query<CountRow[]>('SELECT COUNT(*) AS count FROM notifications');
   const [clients] = await pool.query<CountRow[]>('SELECT COUNT(*) AS count FROM clients');
   const [inspectors] = await pool.query<CountRow[]>('SELECT COUNT(*) AS count FROM inspectors');
+  const [expiringCertificates] = await pool.query<CountRow[]>(
+    'SELECT COUNT(*) AS count FROM certificates WHERE expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)',
+  );
 
   return ok(response, {
     assets: assets[0]?.count ?? 0,
@@ -409,7 +497,259 @@ apiRouter.get('/dashboard/summary', requireAuth, async (_request, response) => {
     notifications: notifications[0]?.count ?? 0,
     clients: clients[0]?.count ?? 0,
     inspectors: inspectors[0]?.count ?? 0,
+    expiring_certificates: expiringCertificates[0]?.count ?? 0,
   });
+});
+
+apiRouter.get('/assets/:id/detail', requireAuth, async (request, response) => {
+  const assetId = Number(request.params.id);
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return fail(response, 400, 'Invalid asset id.');
+  }
+
+  const [assetRows] = await pool.query<AssetDetailRow[]>(
+    `SELECT id, asset_number, name, asset_type, status, client_id, functional_location, serial_number, manufacturer, model, description, notes, created_at, updated_at
+     FROM assets WHERE id = ? LIMIT 1`,
+    [assetId],
+  );
+
+  if (!assetRows.length) {
+    return fail(response, 404, 'Asset not found.');
+  }
+
+  const [certificateRows] = await pool.query<CertificateDetailRow[]>(
+    `SELECT c.id, c.cert_number, c.name, c.cert_type, c.asset_id, c.client_id, c.functional_location, c.inspector_id, i.name AS inspector_name,
+            c.issued_by, c.issue_date, c.expiry_date, c.approval_status, c.notes, c.file_name, c.file_url, c.file_size, c.mime_type,
+            c.uploaded_at, c.created_at, c.updated_at,
+            DATEDIFF(c.expiry_date, CURDATE()) AS days_until_expiry
+     FROM certificates c
+     LEFT JOIN inspectors i ON c.inspector_id = i.id
+     WHERE c.asset_id = ?
+     ORDER BY c.expiry_date ASC`,
+    [assetId],
+  );
+
+  const [transferRows] = await pool.query<TransferRow[]>(
+    `SELECT at.id, at.from_client_id, at.to_client_id, at.from_functional_location, at.to_functional_location,
+            at.transferred_by, at.transfer_date, at.notes, u.name AS user_name
+     FROM asset_transfers at
+     LEFT JOIN users u ON at.transferred_by = u.id
+     WHERE at.asset_id = ?
+     ORDER BY at.transfer_date DESC`,
+    [assetId],
+  );
+
+  return ok(response, {
+    asset: assetRows[0],
+    certificates: certificateRows,
+    transfers: transferRows,
+  });
+});
+
+apiRouter.get('/certificates/:id/transfers', requireAuth, async (request, response) => {
+  const certificateId = Number(request.params.id);
+  if (!Number.isInteger(certificateId) || certificateId <= 0) {
+    return fail(response, 400, 'Invalid certificate id.');
+  }
+
+  const [transferRows] = await pool.query<TransferRow[]>(
+    `SELECT ct.id, ct.from_client_id, ct.to_client_id, ct.from_functional_location, ct.to_functional_location,
+            ct.transferred_by, ct.transfer_date, ct.notes, u.name AS user_name
+     FROM certificate_transfers ct
+     LEFT JOIN users u ON ct.transferred_by = u.id
+     WHERE ct.certificate_id = ?
+     ORDER BY ct.transfer_date DESC`,
+    [certificateId],
+  );
+
+  return ok(response, transferRows);
+});
+
+apiRouter.post('/certificates/:id/transfer', requireAuth, async (request, response) => {
+  const certificateId = Number(request.params.id);
+  if (!Number.isInteger(certificateId) || certificateId <= 0) {
+    return fail(response, 400, 'Invalid certificate id.');
+  }
+
+  const { to_client_id, to_functional_location, notes } = request.body;
+  if (!to_client_id) {
+    return fail(response, 400, 'Target client is required.');
+  }
+
+  const [certRows] = await pool.query<CertificateDetailRow[]>(
+    'SELECT client_id, functional_location FROM certificates WHERE id = ? LIMIT 1',
+    [certificateId],
+  );
+
+  if (!certRows.length) {
+    return fail(response, 404, 'Certificate not found.');
+  }
+
+  const currentCert = certRows[0];
+  await pool.query<ResultSetHeader>(
+    `INSERT INTO certificate_transfers (certificate_id, from_client_id, to_client_id, from_functional_location, to_functional_location, transferred_by, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [certificateId, currentCert.client_id, to_client_id, currentCert.functional_location, to_functional_location || null, request.user?.sub ?? 0, notes || null],
+  );
+
+  await pool.query<ResultSetHeader>(
+    'UPDATE certificates SET client_id = ?, functional_location = ? WHERE id = ?',
+    [to_client_id, to_functional_location || null, certificateId],
+  );
+
+  const [updatedRows] = await pool.query<CertificateDetailRow[]>(
+    `SELECT ${resourceConfigs.certificates.listColumns.join(', ')} FROM certificates WHERE id = ? LIMIT 1`,
+    [certificateId],
+  );
+
+  await notifyUsers(
+    'certificate-transferred',
+    `Certificate transferred`,
+    `Certificate has been transferred to a new client/location.`,
+  );
+
+  return ok(response, updatedRows[0]);
+});
+
+apiRouter.get('/inspectors/with-users', requireAuth, async (_request, response) => {
+  const [rows] = await pool.query<InspectorWithUserRow[]>(
+    `SELECT i.id, i.inspector_number, i.name, i.title, i.email, i.phone, i.status, i.experience_years,
+            u.id AS user_id, u.username
+     FROM inspectors i
+     LEFT JOIN users u ON i.id = u.inspector_id
+     ORDER BY i.name ASC`,
+  );
+
+  return ok(response, rows);
+});
+
+apiRouter.get('/certificates/inspector/:inspectorId', requireAuth, async (request, response) => {
+  const inspectorId = Number(request.params.inspectorId);
+  if (!Number.isInteger(inspectorId) || inspectorId <= 0) {
+    return fail(response, 400, 'Invalid inspector id.');
+  }
+
+  const [rows] = await pool.query<CertificateDetailRow[]>(
+    `SELECT c.id, c.cert_number, c.name, c.cert_type, c.asset_id, c.client_id, c.functional_location, c.inspector_id, i.name AS inspector_name,
+            c.issued_by, c.issue_date, c.expiry_date, c.approval_status, c.notes, c.file_name, c.file_url, c.file_size, c.mime_type,
+            c.uploaded_at, c.created_at, c.updated_at,
+            DATEDIFF(c.expiry_date, CURDATE()) AS days_until_expiry
+     FROM certificates c
+     LEFT JOIN inspectors i ON c.inspector_id = i.id
+     WHERE c.inspector_id = ?
+     ORDER BY c.expiry_date ASC`,
+    [inspectorId],
+  );
+
+  return ok(response, rows);
+});
+
+apiRouter.post('/certificates/log/download', requireAuth, async (request, response) => {
+  const { asset_id, format } = request.body;
+  if (!asset_id) {
+    return fail(response, 400, 'Asset ID is required.');
+  }
+
+  const [certRows] = await pool.query<CertificateDetailRow[]>(
+    `SELECT c.id, c.cert_number, c.name, c.cert_type, c.asset_id, c.client_id, c.functional_location, c.inspector_id, i.name AS inspector_name,
+            c.issued_by, c.issue_date, c.expiry_date, c.approval_status, c.notes, c.file_name, c.file_url, c.file_size, c.mime_type,
+            c.uploaded_at, c.created_at, c.updated_at,
+            DATEDIFF(c.expiry_date, CURDATE()) AS days_until_expiry
+     FROM certificates c
+     LEFT JOIN inspectors i ON c.inspector_id = i.id
+     WHERE c.asset_id = ?
+     ORDER BY c.expiry_date ASC`,
+    [asset_id],
+  );
+
+  const [transferRows] = await pool.query<TransferRow[]>(
+    `SELECT ct.id, ct.from_client_id, ct.to_client_id, ct.from_functional_location, ct.to_functional_location,
+            ct.transferred_by, ct.transfer_date, ct.notes, u.name AS user_name
+     FROM certificate_transfers ct
+     LEFT JOIN users u ON ct.transferred_by = u.id
+     WHERE ct.certificate_id IN (SELECT id FROM certificates WHERE asset_id = ?)
+     ORDER BY ct.transfer_date DESC`,
+    [asset_id],
+  );
+
+  if (format === 'csv') {
+    let csv = 'Type,ID,Cert Number,Name,Type,Client,Location,Inspector,Issued By,Issue Date,Expiry Date,Status,Days Until Expiry\n';
+    certRows.forEach((row) => {
+      csv += `Certificate,${row.id},${row.cert_number},${row.name},${row.cert_type},${row.client_id || ''},${row.functional_location || ''},${row.inspector_name || ''},${row.issued_by},${row.issue_date},${row.expiry_date},${row.approval_status},${row.days_until_expiry}\n`;
+    });
+    transferRows.forEach((row) => {
+      csv += `Transfer,${row.id},,,Transfer,,${row.from_functional_location || ''} -> ${row.to_functional_location || ''},,${row.user_name || ''},,${row.transfer_date},,${row.notes || ''}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    return response.send(Buffer.from(await blob.arrayBuffer()));
+  }
+
+  const jsPDF = (await import('jspdf')).default;
+  const { autoTable } = await import('jspdf-autotable');
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+
+  doc.setFillColor(20, 41, 63);
+  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 74, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text('RG', 34, 34);
+  doc.setFontSize(17);
+  doc.text('Rigways Group', 72, 28);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text('Certificate Log Report', 72, 46);
+
+  doc.setTextColor(47, 55, 66);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text(`Asset ${asset_id} - Certificate Log`, 34, 108);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, doc.internal.pageSize.getWidth() - 180, 108);
+  doc.text(`Certificates: ${certRows.length}`, doc.internal.pageSize.getWidth() - 180, 126);
+
+  autoTable(doc, {
+    startY: 144,
+    head: [['Cert #', 'Name', 'Type', 'Client', 'Location', 'Inspector', 'Issue Date', 'Expiry Date', 'Status', 'Days Left']],
+    body: certRows.map((row) => [
+      row.cert_number,
+      row.name,
+      row.cert_type,
+      row.client_id || '-',
+      row.functional_location || '-',
+      row.inspector_name || '-',
+      row.issue_date,
+      row.expiry_date,
+      row.approval_status,
+      String(row.days_until_expiry),
+    ]),
+    styles: { fontSize: 8, cellPadding: 6, textColor: [47, 55, 66], lineColor: [224, 230, 238], lineWidth: 0.5 },
+    headStyles: { fillColor: [20, 41, 63], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left' },
+    alternateRowStyles: { fillColor: [248, 251, 255] },
+    margin: { left: 34, right: 34, bottom: 30 },
+    didDrawPage: (data: any) => {
+      doc.setFontSize(9);
+      doc.setTextColor(121, 135, 153);
+      doc.text(`Page ${doc.getCurrentPageInfo().pageNumber}`, data.settings.margin.left, doc.internal.pageSize.getHeight() - 12);
+    },
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY || 144;
+  if (transferRows.length > 0) {
+    autoTable(doc, {
+      startY: finalY + 20,
+      head: [['Transfer Date', 'From Location', 'To Location', 'By User', 'Notes']],
+      body: transferRows.map((row) => [row.transfer_date, row.from_functional_location || '-', row.to_functional_location || '-', row.user_name || '-', row.notes || '-']),
+      styles: { fontSize: 8, cellPadding: 6, textColor: [47, 55, 66], lineColor: [224, 230, 238], lineWidth: 0.5 },
+      headStyles: { fillColor: [20, 41, 63], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left' },
+      alternateRowStyles: { fillColor: [248, 251, 255] },
+      margin: { left: 34, right: 34, bottom: 30 },
+    });
+  }
+
+  const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
+  return response.send(pdfBuffer);
 });
 
 apiRouter.get('/files', requireAuth, async (request, response) => {

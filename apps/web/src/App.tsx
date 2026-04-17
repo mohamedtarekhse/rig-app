@@ -5,6 +5,7 @@ import { fetchMe, getToken } from './lib/api';
 import type { ResourceDefinition, SessionUser } from './lib/types';
 import { LoginPage } from './pages/LoginPage';
 import { ResourcePage } from './pages/ResourcePage';
+import { InspectorDashboard } from './components/InspectorDashboard';
 
 export const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   {
@@ -294,7 +295,10 @@ function ProtectedApp({ user }: { user: SessionUser }) {
   return (
     <Routes>
       <Route element={<Layout user={user} definitions={definitions} />}>
-        <Route path="/" element={<Navigate to="/assets" replace />} />
+        <Route path="/" element={<Navigate to={user.role === 'technician' ? '/inspector-dashboard' : '/assets'} replace />} />
+        {user.role === 'technician' && (
+          <Route path="/inspector-dashboard" element={<InspectorDashboard user={user} />} />
+        )}
         {definitions.map((definition) => (
           <Route
             key={definition.key}
@@ -303,7 +307,7 @@ function ProtectedApp({ user }: { user: SessionUser }) {
           />
         ))}
       </Route>
-      <Route path="*" element={<Navigate to="/assets" replace />} />
+      <Route path="*" element={<Navigate to={user.role === 'technician' ? '/inspector-dashboard' : '/assets'} replace />} />
     </Routes>
   );
 }
