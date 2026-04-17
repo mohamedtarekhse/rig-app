@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: light;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   --navy-900: #14293f;
@@ -173,7 +173,7 @@ select:focus-visible,
 .login-brand-row { width: 100%; display: flex; justify-content: center; }
 .brand-lockup { display: flex; align-items: center; gap: 14px; }
 .brand-lockup.inverse { color: #fff; }
-.brand-logo { width: 132px; height: 46px; }
+.brand-logo { width: 132px; height: 46px; display: block; }
 .brand-logo-wrap {
   position: relative;
   display: flex;
@@ -182,15 +182,10 @@ select:focus-visible,
   width: 136px;
   height: 50px;
   color: #fff;
+  overflow: hidden;
 }
 .brand-logo-wrap::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(108deg, transparent 18%, rgba(255,255,255,0.28) 44%, transparent 70%);
-  transform: translateX(-140%);
-  animation: shimmer-sweep 5.8s ease-in-out infinite;
-  pointer-events: none;
+  content: none;
 }
 .shell-brand-lockup { gap: 12px; }
 .shell-brand-copy strong { font-size: 1rem; }
@@ -1332,3 +1327,4 @@ select:focus-visible,
   border: 1px solid #ffd7d2;
   background: #fff7f6;
 }
+

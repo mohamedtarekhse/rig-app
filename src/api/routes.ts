@@ -15,6 +15,7 @@ type CountRow = RowDataPacket & { count: number };
 type UserRow = RowDataPacket & { id: number };
 type PushSubscriptionRow = RowDataPacket & { id: number; endpoint: string; subscription_json: string };
 type CertificateFileRow = RowDataPacket & { file_path: string | null };
+type AssetLookupRow = RowDataPacket & { id: number; asset_number: string; client_id: string | null };
 
 type ResourceConfig = {
   table: string;
@@ -148,7 +149,73 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: env.maxUploadSizeMb * 1024 * 1024 },
 });
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return 'Unknown error';
+}
 
+function getMySqlErrorCode(error: unknown) {
+  if (typeof error === 'object' && error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
+    return (error as { code: string }).code;
+  }
+
+  return null;
+}
+
+async function resolveCertificatePayload(payload: Record<string, unknown>) {
+  const nextPayload = { ...payload };
+  const assetReference = String(nextPayload.asset_id ?? '').trim();
+
+  if (!assetReference) {
+    return nextPayload;
+  }
+
+  const numericAssetId = Number(assetReference);
+  if (Number.isInteger(numericAssetId) && numericAssetId > 0) {
+    const [assetRows] = await pool.query<AssetLookupRow[]>('SELECT id, asset_number, client_id FROM assets WHERE id = ? LIMIT 1', [numericAssetId]);
+    if (!assetRows.length) {
+      throw new Error(`Asset "${assetReference}" was not found.`);
+    }
+
+    nextPayload.asset_id = assetRows[0].id;
+    if ((nextPayload.client_id === undefined || nextPayload.client_id === '') && assetRows[0].client_id) {
+      nextPayload.client_id = assetRows[0].client_id;
+    }
+    return nextPayload;
+  }
+
+  const [assetRows] = await pool.query<AssetLookupRow[]>('SELECT id, asset_number, client_id FROM assets WHERE asset_number = ? LIMIT 1', [assetReference]);
+  if (!assetRows.length) {
+    throw new Error(`Asset "${assetReference}" was not found.`);
+  }
+
+  nextPayload.asset_id = assetRows[0].id;
+  if ((nextPayload.client_id === undefined || nextPayload.client_id === '') && assetRows[0].client_id) {
+    nextPayload.client_id = assetRows[0].client_id;
+  }
+
+  return nextPayload;
+}
+
+function handleResourceWriteError(response: Parameters<typeof fail>[0], error: unknown) {
+  const code = getMySqlErrorCode(error);
+
+  if (code === 'ER_DUP_ENTRY') {
+    return fail(response, 409, 'A record with the same unique value already exists.');
+  }
+
+  if (code === 'ER_NO_REFERENCED_ROW_2' || code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') {
+    return fail(response, 400, getErrorMessage(error));
+  }
+
+  const message = getErrorMessage(error);
+  if (message.includes('was not found')) {
+    return fail(response, 400, message);
+  }
+
+  console.error('Resource write failed', error);
+  return fail(response, 500, 'Unable to save the record right now.');
+}
 function resourceRouter(resource: string, config: ResourceConfig) {
   const router = Router();
 
@@ -188,78 +255,94 @@ function resourceRouter(resource: string, config: ResourceConfig) {
   });
 
   router.post('/', requireAuth, async (request, response) => {
-    const body = config.normalize ? config.normalize(request.body) : request.body;
-    const payload = Object.fromEntries(
-      config.writableColumns
-        .filter((column) => body[column] !== undefined && body[column] !== '')
-        .map((column) => [column, body[column]]),
-    ) as Record<string, unknown>;
+    try {
+      const body = config.normalize ? config.normalize(request.body) : request.body;
+      let payload = Object.fromEntries(
+        config.writableColumns
+          .filter((column) => body[column] !== undefined && body[column] !== '')
+          .map((column) => [column, body[column]]),
+      ) as Record<string, unknown>;
 
-    if (Object.keys(payload).length === 0) {
-      return fail(response, 400, 'No data provided.');
-    }
+      if (Object.keys(payload).length === 0) {
+        return fail(response, 400, 'No data provided.');
+      }
 
-    if (resource === 'notifications') {
-      payload.user_id = request.user?.sub;
-    }
+      if (resource === 'notifications') {
+        payload.user_id = request.user?.sub;
+      }
 
-    const columns = Object.keys(payload);
-    const placeholders = columns.map(() => '?').join(', ');
-    const values = columns.map((column) => payload[column]);
+      if (resource === 'certificates') {
+        payload = await resolveCertificatePayload(payload);
+      }
 
-    const [result] = await pool.query<ResultSetHeader>(
-      `INSERT INTO ${config.table} (${columns.join(', ')}) VALUES (${placeholders})`,
-      values,
-    );
+      const columns = Object.keys(payload);
+      const placeholders = columns.map(() => '?').join(', ');
+      const values = columns.map((column) => payload[column]);
 
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT ${config.listColumns.join(', ')} FROM ${config.table} WHERE id = ? LIMIT 1`,
-      [result.insertId],
-    );
-
-    if (resource === 'certificates') {
-      const created = rows[0];
-      await notifyUsers(
-        'certificate-created',
-        `Certificate ${String(created?.cert_number ?? result.insertId)} created`,
-        `${String(created?.name ?? 'A certificate')} is now in the system with status ${String(created?.approval_status ?? 'pending')}.`,
+      const [result] = await pool.query<ResultSetHeader>(
+        `INSERT INTO ${config.table} (${columns.join(', ')}) VALUES (${placeholders})`,
+        values,
       );
-    }
 
-    return ok(response, rows[0], 201);
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT ${config.listColumns.join(', ')} FROM ${config.table} WHERE id = ? LIMIT 1`,
+        [result.insertId],
+      );
+
+      if (resource === 'certificates') {
+        const created = rows[0];
+        await notifyUsers(
+          'certificate-created',
+          `Certificate ${String(created?.cert_number ?? result.insertId)} created`,
+          `${String(created?.name ?? 'A certificate')} is now in the system with status ${String(created?.approval_status ?? 'pending')}.`,
+        );
+      }
+
+      return ok(response, rows[0], 201);
+    } catch (error) {
+      return handleResourceWriteError(response, error);
+    }
   });
 
   router.put('/:id', requireAuth, async (request, response) => {
-    const body = config.normalize ? config.normalize(request.body) : request.body;
-    const payload = Object.fromEntries(
-      config.writableColumns
-        .filter((column) => body[column] !== undefined && body[column] !== '')
-        .map((column) => [column, body[column]]),
-    ) as Record<string, unknown>;
+    try {
+      const body = config.normalize ? config.normalize(request.body) : request.body;
+      let payload = Object.fromEntries(
+        config.writableColumns
+          .filter((column) => body[column] !== undefined && body[column] !== '')
+          .map((column) => [column, body[column]]),
+      ) as Record<string, unknown>;
 
-    if (Object.keys(payload).length === 0) {
-      return fail(response, 400, 'No data provided.');
-    }
+      if (Object.keys(payload).length === 0) {
+        return fail(response, 400, 'No data provided.');
+      }
 
-    const fields = Object.keys(payload).map((column) => `${column} = ?`);
-    const values = [...Object.values(payload), request.params.id];
-    await pool.query<ResultSetHeader>(`UPDATE ${config.table} SET ${fields.join(', ')} WHERE id = ?`, values);
+      if (resource === 'certificates') {
+        payload = await resolveCertificatePayload(payload);
+      }
 
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT ${config.listColumns.join(', ')} FROM ${config.table} WHERE id = ? LIMIT 1`,
-      [request.params.id],
-    );
+      const fields = Object.keys(payload).map((column) => `${column} = ?`);
+      const values = [...Object.values(payload), request.params.id];
+      await pool.query<ResultSetHeader>(`UPDATE ${config.table} SET ${fields.join(', ')} WHERE id = ?`, values);
 
-    if (resource === 'certificates') {
-      const updated = rows[0];
-      await notifyUsers(
-        'certificate-updated',
-        `Certificate ${String(updated?.cert_number ?? request.params.id)} updated`,
-        `${String(updated?.name ?? 'Certificate')} is now ${String(updated?.approval_status ?? 'updated')}.`,
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT ${config.listColumns.join(', ')} FROM ${config.table} WHERE id = ? LIMIT 1`,
+        [request.params.id],
       );
-    }
 
-    return ok(response, rows[0]);
+      if (resource === 'certificates') {
+        const updated = rows[0];
+        await notifyUsers(
+          'certificate-updated',
+          `Certificate ${String(updated?.cert_number ?? request.params.id)} updated`,
+          `${String(updated?.name ?? 'Certificate')} is now ${String(updated?.approval_status ?? 'updated')}.`,
+        );
+      }
+
+      return ok(response, rows[0]);
+    } catch (error) {
+      return handleResourceWriteError(response, error);
+    }
   });
 
   router.delete('/:id', requireAuth, async (request, response) => {
@@ -511,6 +594,9 @@ apiRouter.post('/certificates/:id/upload', requireAuth, (request, response, next
 for (const [resource, config] of Object.entries(resourceConfigs)) {
   apiRouter.use(`/${resource}`, resourceRouter(resource, config));
 }
+
+
+
 
 
 

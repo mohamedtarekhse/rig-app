@@ -523,11 +523,9 @@ export function ResourcePage({ definition, user }: ResourcePageProps) {
     if (!file) return;
 
     try {
-      const contentBase64 = await readFileAsBase64(file);
       setCertificateUpload({
+        file,
         fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        contentBase64,
         size: file.size,
       });
       setError('');
@@ -1293,6 +1291,7 @@ function renderFiles() {
     </>
   );
 }
+
 
 
 
