@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -117,6 +118,10 @@ async function notifyUsers(type, title, body, userIds) {
         url: '/notifications',
     });
 }
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: env.maxUploadSizeMb * 1024 * 1024 },
+});
 function resourceRouter(resource, config) {
     const router = Router();
     router.get('/', requireAuth, async (request, response) => {
@@ -326,33 +331,33 @@ apiRouter.post('/push/test', requireAuth, async (request, response) => {
     await notifyUsers(broadcast ? 'push-test-broadcast' : 'push-test', title, body, targets);
     return ok(response, { sent: true, recipients: targets.length });
 });
-apiRouter.post('/certificates/:id/upload', requireAuth, async (request, response) => {
-    const schema = z.object({
-        fileName: z.string().min(1),
-        mimeType: z.string().min(1),
-        contentBase64: z.string().min(1),
+apiRouter.post('/certificates/:id/upload', requireAuth, (request, response, next) => {
+    upload.single('file')(request, response, (error) => {
+        if (!error) {
+            next();
+            return;
+        }
+        if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+            response.status(400).json({ success: false, error: `The uploaded file exceeds the ${env.maxUploadSizeMb} MB limit.` });
+            return;
+        }
+        response.status(400).json({ success: false, error: 'Certificate file upload failed.' });
     });
-    const parsed = schema.safeParse(request.body);
-    if (!parsed.success) {
-        return fail(response, 400, 'Certificate file payload is invalid.');
-    }
+}, async (request, response) => {
     const certificateId = Number(request.params.id);
     if (!Number.isInteger(certificateId) || certificateId <= 0) {
         return fail(response, 400, 'Invalid certificate id.');
     }
-    const buffer = Buffer.from(parsed.data.contentBase64, 'base64');
-    if (!buffer.length) {
-        return fail(response, 400, 'The uploaded file is empty.');
-    }
-    if (buffer.length > env.maxUploadSizeMb * 1024 * 1024) {
-        return fail(response, 400, `The uploaded file exceeds the ${env.maxUploadSizeMb} MB limit.`);
+    const file = request.file;
+    if (!file?.buffer?.length) {
+        return fail(response, 400, 'Please choose a certificate file to upload.');
     }
     const [existingRows] = await pool.query('SELECT file_path FROM certificates WHERE id = ? LIMIT 1', [certificateId]);
     if (!existingRows.length) {
         return fail(response, 404, 'Certificate not found.');
     }
-    const extension = path.extname(parsed.data.fileName) || '';
-    const baseName = sanitizeFileName(path.basename(parsed.data.fileName, extension));
+    const extension = path.extname(file.originalname) || '';
+    const baseName = sanitizeFileName(path.basename(file.originalname, extension));
     const storedFileName = `${Date.now()}-${baseName}${extension.toLowerCase()}`;
     const relativeDir = path.posix.join('certificates', String(certificateId));
     const absoluteDir = path.join(env.uploadsDir, 'certificates', String(certificateId));
@@ -368,15 +373,15 @@ apiRouter.post('/certificates/:id/upload', requireAuth, async (request, response
             // Ignore stale files; we are replacing the stored asset.
         }
     }
-    await fs.writeFile(absolutePath, buffer);
+    await fs.writeFile(absolutePath, file.buffer);
     await pool.query(`
       UPDATE certificates
       SET file_name = ?, file_path = ?, file_url = ?, file_size = ?, mime_type = ?, uploaded_at = NOW(), uploaded_by = ?
       WHERE id = ?
-    `, [parsed.data.fileName, absolutePath, fileUrl, buffer.length, parsed.data.mimeType, request.user?.sub ?? null, certificateId]);
+    `, [file.originalname, absolutePath, fileUrl, file.size, file.mimetype || 'application/octet-stream', request.user?.sub ?? null, certificateId]);
     const [rows] = await pool.query(`SELECT ${resourceConfigs.certificates.listColumns.join(', ')} FROM certificates WHERE id = ? LIMIT 1`, [certificateId]);
     const certificate = rows[0];
-    await notifyUsers('certificate-file-uploaded', `Certificate file uploaded for ${String(certificate?.cert_number ?? certificateId)}`, `${String(certificate?.name ?? 'A certificate')} now has an attached file (${parsed.data.fileName}).`);
+    await notifyUsers('certificate-file-uploaded', `Certificate file uploaded for ${String(certificate?.cert_number ?? certificateId)}`, `${String(certificate?.name ?? 'A certificate')} now has an attached file (${file.originalname}).`);
     return ok(response, certificate);
 });
 for (const [resource, config] of Object.entries(resourceConfigs)) {
