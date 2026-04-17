@@ -58,7 +58,7 @@ const resourceConfigs: Record<string, ResourceConfig> = {
   certificates: {
     table: 'certificates',
     searchColumns: ['cert_number', 'name', 'cert_type', 'client_id', 'issued_by', 'approval_status', 'file_name'],
-    listColumns: ['id', 'cert_number', 'name', 'cert_type', 'asset_id', 'client_id', 'issued_by', 'issue_date', 'expiry_date', 'approval_status', 'notes', 'file_name', 'file_url', 'file_size', 'mime_type', 'uploaded_at', 'created_at'],
+    listColumns: ['id', 'cert_number', 'name', 'cert_type', 'asset_id', 'client_id', 'issued_by', 'issue_date', 'expiry_date', 'approval_status', 'notes', 'file_name', 'file_url', 'file_size', 'mime_type', 'uploaded_at', 'created_at', 'updated_at'],
     writableColumns: ['cert_number', 'name', 'cert_type', 'asset_id', 'client_id', 'issued_by', 'issue_date', 'expiry_date', 'approval_status', 'notes'],
     defaultOrder: 'created_at DESC',
   },
