@@ -435,7 +435,7 @@ apiRouter.post('/push/test', requireAuth, async (request, response) => {
 });
 
 apiRouter.post('/certificates/:id/upload', requireAuth, (request, response, next) => {
-  upload.single('file')(request, response, (error) => {
+  upload.single('file')(request, response, (error: unknown) => {
     if (!error) {
       next();
       return;
@@ -511,5 +511,6 @@ apiRouter.post('/certificates/:id/upload', requireAuth, (request, response, next
 for (const [resource, config] of Object.entries(resourceConfigs)) {
   apiRouter.use(`/${resource}`, resourceRouter(resource, config));
 }
+
 
 

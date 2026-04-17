@@ -12,6 +12,7 @@ declare global {
         role: string;
         customer_id: string | null;
       };
+      file?: Multer.File;
     }
   }
 }
