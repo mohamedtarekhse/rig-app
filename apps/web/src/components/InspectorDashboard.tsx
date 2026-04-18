@@ -47,6 +47,11 @@ export function InspectorDashboard({ user }: InspectorDashboardProps) {
   const [clients, setClients] = useState<ResourceRow[]>([]);
   const [assets, setAssets] = useState<ResourceRow[]>([]);
   const [locations, setLocations] = useState<ResourceRow[]>([]);
+  const [selectedClient, setSelectedClient] = useState<string>('');
+  const [filteredLocations, setFilteredLocations] = useState<ResourceRow[]>([]);
+  const [extensionRequestOpen, setExtensionRequestOpen] = useState(false);
+  const [extensionCertId, setExtensionCertId] = useState<number | null>(null);
+  const [extensionReason, setExtensionReason] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +84,15 @@ export function InspectorDashboard({ user }: InspectorDashboardProps) {
       cancelled = true;
     };
   }, [user.id]);
+
+  // Filter locations based on selected client
+  useEffect(() => {
+    if (selectedClient) {
+      setFilteredLocations(locations.filter(loc => loc.client_id === selectedClient));
+    } else {
+      setFilteredLocations(locations);
+    }
+  }, [selectedClient, locations]);
 
   function canEditCertificate(cert: CertificateWithExpiry): boolean {
     if (user.role === 'admin') return true;
@@ -178,7 +192,9 @@ export function InspectorDashboard({ user }: InspectorDashboardProps) {
 
   async function handleEdit(cert: CertificateWithExpiry) {
     if (!canEditCertificate(cert)) {
-      alert('You can only edit certificates within 24 hours of creation. Contact admin for older entries.');
+      // Open extension request instead
+      setExtensionCertId(cert.id);
+      setExtensionRequestOpen(true);
       return;
     }
 
@@ -197,6 +213,29 @@ export function InspectorDashboard({ user }: InspectorDashboardProps) {
       notes: cert.notes || '',
     });
     setFormOpen(true);
+  }
+
+  async function handleExtensionRequest() {
+    if (!extensionCertId || !extensionReason) {
+      alert('Please provide a reason for the extension request.');
+      return;
+    }
+
+    try {
+      // Create a renewal request in the database
+      await createResource('certificate-renewals', {
+        certificate_id: extensionCertId,
+        renewal_notes: extensionReason,
+        renewal_status: 'pending',
+      });
+      
+      setExtensionRequestOpen(false);
+      setExtensionCertId(null);
+      setExtensionReason('');
+      alert('Extension request submitted successfully. An admin will review your request.');
+    } catch (caught) {
+      alert(caught instanceof Error ? caught.message : 'Failed to submit extension request.');
+    }
   }
 
   if (loading) {
@@ -466,7 +505,10 @@ export function InspectorDashboard({ user }: InspectorDashboardProps) {
                     </label>
                     <select
                       value={form.client_id}
-                      onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                      onChange={(e) => {
+                        setForm({ ...form, client_id: e.target.value, functional_location: '' });
+                        setSelectedClient(e.target.value);
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">Select Client</option>
@@ -485,14 +527,18 @@ export function InspectorDashboard({ user }: InspectorDashboardProps) {
                       value={form.functional_location}
                       onChange={(e) => setForm({ ...form, functional_location: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={!form.client_id}
                     >
                       <option value="">Select Location</option>
-                      {locations.map((loc) => (
+                      {filteredLocations.map((loc) => (
                         <option key={loc.id} value={loc.functional_location}>
                           {loc.functional_location} - {loc.name}
                         </option>
                       ))}
                     </select>
+                    {!form.client_id && (
+                      <p className="mt-1 text-xs text-gray-500">Select a client first to see locations</p>
+                    )}
                   </div>
                 </div>
 
@@ -584,6 +630,55 @@ export function InspectorDashboard({ user }: InspectorDashboardProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Extension Request Modal */}
+      {extensionRequestOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Request Edit Extension</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                The 24-hour edit window has closed. Submit a reason for extending the edit period.
+              </p>
+            </div>
+            
+            <div className="px-6 py-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Reason for Extension *
+              </label>
+              <textarea
+                value={extensionReason}
+                onChange={(e) => setExtensionReason(e.target.value)}
+                rows={4}
+                placeholder="Explain why you need to edit this certificate..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setExtensionRequestOpen(false);
+                  setExtensionCertId(null);
+                  setExtensionReason('');
+                }}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExtensionRequest}
+                disabled={!extensionReason.trim()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md transition-colors disabled:opacity-50"
+              >
+                Submit Request
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -144,6 +144,13 @@ const resourceConfigs: Record<string, ResourceConfig> = {
       is_read: body.is_read === '1' || body.is_read === 1 || body.is_read === true ? 1 : 0,
     }),
   },
+  'certificate-renewals': {
+    table: 'certificate_renewals',
+    searchColumns: ['renewal_status', 'renewal_notes'],
+    listColumns: ['id', 'certificate_id', 'old_expiry_date', 'new_expiry_date', 'renewal_status', 'requested_by', 'approved_by', 'renewal_notes', 'rejection_reason', 'requested_at', 'approved_at', 'completed_at'],
+    writableColumns: ['certificate_id', 'old_expiry_date', 'new_expiry_date', 'renewal_status', 'renewal_notes', 'rejection_reason'],
+    defaultOrder: 'requested_at DESC',
+  },
 };
 
 function sanitizeFileName(name: string) {
@@ -935,7 +942,502 @@ for (const [resource, config] of Object.entries(resourceConfigs)) {
   apiRouter.use(`/${resource}`, resourceRouter(resource, config));
 }
 
+// Maintenance Schedules API Routes
+apiRouter.get('/maintenance-schedules', requireAuth, async (request, response) => {
+  const query = String(request.query.q ?? '').trim();
+  const params: unknown[] = [];
+  let sql = `
+    SELECT 
+      ms.id,
+      ms.asset_id,
+      a.asset_number,
+      a.name AS asset_name,
+      ms.title,
+      ms.description,
+      ms.scheduled_date,
+      ms.completed_date,
+      ms.status,
+      ms.priority,
+      ms.assigned_to,
+      u.name AS assigned_to_name,
+      ms.created_by,
+      cu.name AS created_by_name,
+      ms.created_at,
+      ms.updated_at
+    FROM maintenance_schedules ms
+    LEFT JOIN assets a ON a.id = ms.asset_id
+    LEFT JOIN users u ON u.id = ms.assigned_to
+    LEFT JOIN users cu ON cu.id = ms.created_by
+  `;
+  
+  const conditions: string[] = [];
+  if (query) {
+    conditions.push('(ms.title LIKE ? OR ms.description LIKE ? OR a.asset_number LIKE ?)');
+    params.push(`%${query}%`, `%${query}%`, `%${query}%`);
+  }
+  
+  if (conditions.length > 0) {
+    sql += ' WHERE ' + conditions.join(' AND ');
+  }
+  
+  sql += ' ORDER BY ms.scheduled_date DESC, ms.created_at DESC LIMIT 100';
+  
+  const [rows] = await pool.query<RowDataPacket[]>(sql, params);
+  return ok(response, rows);
+});
 
+apiRouter.post('/maintenance-schedules', requireAuth, async (request, response) => {
+  try {
+    const { asset_id, title, description, scheduled_date, priority, assigned_to } = request.body;
+    
+    if (!asset_id || !title || !scheduled_date) {
+      return fail(response, 400, 'Asset ID, title, and scheduled date are required.');
+    }
+    
+    const [result] = await pool.query<ResultSetHeader>(
+      `INSERT INTO maintenance_schedules (asset_id, title, description, scheduled_date, priority, assigned_to, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [asset_id, title, description || null, scheduled_date, priority || 'medium', assigned_to || null, request.user?.sub]
+    );
+    
+    // Log audit
+    await pool.query<ResultSetHeader>(
+      `INSERT INTO audit_logs (user_id, action_type, resource_type, resource_id, new_values)
+       VALUES (?, ?, ?, ?, ?)`,
+      [request.user?.sub, 'CREATE', 'maintenance_schedule', result.insertId, JSON.stringify({ asset_id, title, scheduled_date })]
+    );
+    
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM maintenance_schedules WHERE id = ? LIMIT 1',
+      [result.insertId]
+    );
+    
+    return ok(response, rows[0], 201);
+  } catch (error) {
+    console.error('Create maintenance schedule failed', error);
+    return fail(response, 500, 'Unable to create maintenance schedule.');
+  }
+});
+
+apiRouter.put('/maintenance-schedules/:id', requireAuth, async (request, response) => {
+  try {
+    const { id } = request.params;
+    const { status, completed_date, priority, assigned_to, title, description } = request.body;
+    
+    // Get existing record for audit
+    const [existingRows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM maintenance_schedules WHERE id = ? LIMIT 1',
+      [id]
+    );
+    
+    if (existingRows.length === 0) {
+      return fail(response, 404, 'Maintenance schedule not found.');
+    }
+    
+    const existing = existingRows[0];
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    
+    if (status !== undefined) {
+      updates.push('status = ?');
+      values.push(status);
+    }
+    if (completed_date !== undefined) {
+      updates.push('completed_date = ?');
+      values.push(completed_date);
+    }
+    if (priority !== undefined) {
+      updates.push('priority = ?');
+      values.push(priority);
+    }
+    if (assigned_to !== undefined) {
+      updates.push('assigned_to = ?');
+      values.push(assigned_to);
+    }
+    if (title !== undefined) {
+      updates.push('title = ?');
+      values.push(title);
+    }
+    if (description !== undefined) {
+      updates.push('description = ?');
+      values.push(description);
+    }
+    
+    if (updates.length === 0) {
+      return fail(response, 400, 'No data provided.');
+    }
+    
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+    
+    await pool.query<ResultSetHeader>(
+      `UPDATE maintenance_schedules SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+    
+    // Log audit
+    await pool.query<ResultSetHeader>(
+      `INSERT INTO audit_logs (user_id, action_type, resource_type, resource_id, old_values, new_values)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [request.user?.sub, 'UPDATE', 'maintenance_schedule', id, JSON.stringify(existing), JSON.stringify(request.body)]
+    );
+    
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM maintenance_schedules WHERE id = ? LIMIT 1',
+      [id]
+    );
+    
+    return ok(response, rows[0]);
+  } catch (error) {
+    console.error('Update maintenance schedule failed', error);
+    return fail(response, 500, 'Unable to update maintenance schedule.');
+  }
+});
+
+apiRouter.delete('/maintenance-schedules/:id', requireAuth, async (request, response) => {
+  try {
+    const { id } = request.params;
+    
+    // Log audit before delete
+    const [existingRows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM maintenance_schedules WHERE id = ? LIMIT 1',
+      [id]
+    );
+    
+    if (existingRows.length > 0) {
+      await pool.query<ResultSetHeader>(
+        `INSERT INTO audit_logs (user_id, action_type, resource_type, resource_id, old_values)
+         VALUES (?, ?, ?, ?, ?)`,
+        [request.user?.sub, 'DELETE', 'maintenance_schedule', id, JSON.stringify(existingRows[0])]
+      );
+    }
+    
+    await pool.query<ResultSetHeader>('DELETE FROM maintenance_schedules WHERE id = ?', [id]);
+    return ok(response, { deleted: true });
+  } catch (error) {
+    console.error('Delete maintenance schedule failed', error);
+    return fail(response, 500, 'Unable to delete maintenance schedule.');
+  }
+});
+
+// Certificate Renewal API Routes
+apiRouter.get('/certificate-renewals', requireAuth, async (request, response) => {
+  const query = String(request.query.q ?? '').trim();
+  const params: unknown[] = [];
+  let sql = `
+    SELECT 
+      cr.id,
+      cr.certificate_id,
+      c.cert_number,
+      c.name AS certificate_name,
+      cr.old_expiry_date,
+      cr.new_expiry_date,
+      cr.renewal_status,
+      cr.requested_by,
+      ru.name AS requested_by_name,
+      cr.approved_by,
+      au.name AS approved_by_name,
+      cr.renewal_notes,
+      cr.rejection_reason,
+      cr.requested_at,
+      cr.approved_at,
+      cr.completed_at
+    FROM certificate_renewals cr
+    LEFT JOIN certificates c ON c.id = cr.certificate_id
+    LEFT JOIN users ru ON ru.id = cr.requested_by
+    LEFT JOIN users au ON au.id = cr.approved_by
+  `;
+  
+  const conditions: string[] = [];
+  if (query) {
+    conditions.push('(c.cert_number LIKE ? OR c.name LIKE ?)');
+    params.push(`%${query}%`, `%${query}%`);
+  }
+  
+  if (conditions.length > 0) {
+    sql += ' WHERE ' + conditions.join(' AND ');
+  }
+  
+  sql += ' ORDER BY cr.requested_at DESC LIMIT 100';
+  
+  const [rows] = await pool.query<RowDataPacket[]>(sql, params);
+  return ok(response, rows);
+});
+
+apiRouter.post('/certificate-renewals', requireAuth, async (request, response) => {
+  try {
+    const { certificate_id, new_expiry_date, renewal_notes } = request.body;
+    
+    if (!certificate_id) {
+      return fail(response, 400, 'Certificate ID is required.');
+    }
+    
+    // Get current certificate expiry
+    const [certRows] = await pool.query<RowDataPacket[]>(
+      'SELECT expiry_date FROM certificates WHERE id = ? LIMIT 1',
+      [certificate_id]
+    );
+    
+    if (certRows.length === 0) {
+      return fail(response, 404, 'Certificate not found.');
+    }
+    
+    const oldExpiryDate = certRows[0].expiry_date;
+    
+    const [result] = await pool.query<ResultSetHeader>(
+      `INSERT INTO certificate_renewals (certificate_id, old_expiry_date, new_expiry_date, renewal_notes, requested_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [certificate_id, oldExpiryDate, new_expiry_date || null, renewal_notes || null, request.user?.sub]
+    );
+    
+    // Log audit
+    await pool.query<ResultSetHeader>(
+      `INSERT INTO audit_logs (user_id, action_type, resource_type, resource_id, new_values)
+       VALUES (?, ?, ?, ?, ?)`,
+      [request.user?.sub, 'CREATE', 'certificate_renewal', result.insertId, JSON.stringify({ certificate_id, new_expiry_date })]
+    );
+    
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM certificate_renewals WHERE id = ? LIMIT 1',
+      [result.insertId]
+    );
+    
+    return ok(response, rows[0], 201);
+  } catch (error) {
+    console.error('Create certificate renewal failed', error);
+    return fail(response, 500, 'Unable to create certificate renewal request.');
+  }
+});
+
+apiRouter.put('/certificate-renewals/:id', requireAuth, async (request, response) => {
+  try {
+    const { id } = request.params;
+    const { renewal_status, new_expiry_date, approved_by, rejection_reason, renewal_notes } = request.body;
+    
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    
+    if (renewal_status !== undefined) {
+      updates.push('renewal_status = ?');
+      values.push(renewal_status);
+      
+      if (renewal_status === 'approved') {
+        updates.push('approved_at = CURRENT_TIMESTAMP');
+        updates.push('approved_by = ?');
+        values.push(request.user?.sub);
+      } else if (renewal_status === 'rejected') {
+        updates.push('rejection_reason = ?');
+        values.push(rejection_reason || null);
+      } else if (renewal_status === 'completed') {
+        updates.push('completed_at = CURRENT_TIMESTAMP');
+      }
+    }
+    
+    if (new_expiry_date !== undefined) {
+      updates.push('new_expiry_date = ?');
+      values.push(new_expiry_date);
+    }
+    
+    if (renewal_notes !== undefined) {
+      updates.push('renewal_notes = ?');
+      values.push(renewal_notes);
+    }
+    
+    if (updates.length === 0) {
+      return fail(response, 400, 'No data provided.');
+    }
+    
+    values.push(id);
+    
+    await pool.query<ResultSetHeader>(
+      `UPDATE certificate_renewals SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+    
+    // If approved and has new expiry date, update the certificate
+    if (renewal_status === 'approved' && new_expiry_date) {
+      const [renewalRows] = await pool.query<RowDataPacket[]>(
+        'SELECT certificate_id FROM certificate_renewals WHERE id = ? LIMIT 1',
+        [id]
+      );
+      
+      if (renewalRows.length > 0) {
+        await pool.query<ResultSetHeader>(
+          'UPDATE certificates SET expiry_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [new_expiry_date, renewalRows[0].certificate_id]
+        );
+        
+        // Log audit for certificate update
+        await pool.query<ResultSetHeader>(
+          `INSERT INTO audit_logs (user_id, action_type, resource_type, resource_id, new_values)
+           VALUES (?, ?, ?, ?, ?)`,
+          [request.user?.sub, 'RENEWAL', 'certificate', renewalRows[0].certificate_id, JSON.stringify({ new_expiry_date })]
+        );
+      }
+    }
+    
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM certificate_renewals WHERE id = ? LIMIT 1',
+      [id]
+    );
+    
+    return ok(response, rows[0]);
+  } catch (error) {
+    console.error('Update certificate renewal failed', error);
+    return fail(response, 500, 'Unable to update certificate renewal.');
+  }
+});
+
+// Audit Logs API Route
+apiRouter.get('/audit-logs', requireAuth, async (request, response) => {
+  // Only admins can view audit logs
+  if (request.user?.role !== 'admin') {
+    return fail(response, 403, 'Access denied. Admin privileges required.');
+  }
+  
+  const query = String(request.query.q ?? '').trim();
+  const resourceType = String(request.query.resourceType ?? '');
+  const userId = request.query.userId ? Number(request.query.userId) : null;
+  const startDate = String(request.query.startDate ?? '');
+  const endDate = String(request.query.endDate ?? '');
+  
+  const params: unknown[] = [];
+  let sql = `
+    SELECT 
+      al.id,
+      al.user_id,
+      u.name AS user_name,
+      al.action_type,
+      al.resource_type,
+      al.resource_id,
+      al.old_values,
+      al.new_values,
+      al.ip_address,
+      al.created_at
+    FROM audit_logs al
+    LEFT JOIN users u ON u.id = al.user_id
+    WHERE 1=1
+  `;
+  
+  if (query) {
+    sql += ' AND (al.action_type LIKE ? OR al.resource_type LIKE ?)';
+    params.push(`%${query}%`, `%${query}%`);
+  }
+  
+  if (resourceType) {
+    sql += ' AND al.resource_type = ?';
+    params.push(resourceType);
+  }
+  
+  if (userId) {
+    sql += ' AND al.user_id = ?';
+    params.push(userId);
+  }
+  
+  if (startDate) {
+    sql += ' AND al.created_at >= ?';
+    params.push(startDate);
+  }
+  
+  if (endDate) {
+    sql += ' AND al.created_at <= ?';
+    params.push(endDate);
+  }
+  
+  sql += ' ORDER BY al.created_at DESC LIMIT 500';
+  
+  const [rows] = await pool.query<RowDataPacket[]>(sql, params);
+  return ok(response, rows);
+});
+
+// Bulk Operations API Routes
+apiRouter.post('/bulk-operations', requireAuth, async (request, response) => {
+  try {
+    const { operation_type, resource_type, records } = request.body;
+    
+    if (!operation_type || !resource_type || !Array.isArray(records)) {
+      return fail(response, 400, 'Operation type, resource type, and records array are required.');
+    }
+    
+    // Create bulk operation record
+    const [result] = await pool.query<ResultSetHeader>(
+      `INSERT INTO bulk_operations (operation_type, resource_type, total_records, initiated_by, status, started_at)
+       VALUES (?, ?, ?, ?, 'processing', CURRENT_TIMESTAMP)`,
+      [operation_type, resource_type, records.length, request.user?.sub]
+    );
+    
+    const bulkOpId = result.insertId;
+    let successful = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    
+    // Process based on operation type
+    if (operation_type === 'delete' && resource_type === 'assets') {
+      for (const record of records) {
+        try {
+          await pool.query<ResultSetHeader>('DELETE FROM assets WHERE id = ?', [record.id]);
+          successful++;
+        } catch (err) {
+          failed++;
+          errors.push(`Failed to delete asset ${record.id}: ${(err as Error).message}`);
+        }
+      }
+    } else if (operation_type === 'delete' && resource_type === 'certificates') {
+      for (const record of records) {
+        try {
+          await pool.query<ResultSetHeader>('DELETE FROM certificates WHERE id = ?', [record.id]);
+          successful++;
+        } catch (err) {
+          failed++;
+          errors.push(`Failed to delete certificate ${record.id}: ${(err as Error).message}`);
+        }
+      }
+    } else {
+      return fail(response, 400, `Unsupported bulk operation: ${operation_type} on ${resource_type}`);
+    }
+    
+    // Update bulk operation record
+    await pool.query<ResultSetHeader>(
+      `UPDATE bulk_operations 
+       SET successful_records = ?, failed_records = ?, error_log = ?, status = ?, completed_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [successful, failed, errors.join('\n') || null, failed > 0 ? 'failed' : 'completed', bulkOpId]
+    );
+    
+    // Log audit
+    await pool.query<ResultSetHeader>(
+      `INSERT INTO audit_logs (user_id, action_type, resource_type, new_values)
+       VALUES (?, ?, ?, ?)`,
+      [request.user?.sub, 'BULK_OPERATION', resource_type, JSON.stringify({ operation_type, total: records.length, successful, failed })]
+    );
+    
+    return ok(response, {
+      id: bulkOpId,
+      operation_type,
+      resource_type,
+      total_records: records.length,
+      successful_records: successful,
+      failed_records: failed,
+      status: failed > 0 ? 'failed' : 'completed',
+      errors: failed > 0 ? errors : undefined
+    });
+  } catch (error) {
+    console.error('Bulk operation failed', error);
+    return fail(response, 500, 'Unable to perform bulk operation.');
+  }
+});
+
+apiRouter.get('/bulk-operations', requireAuth, async (request, response) => {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT bo.*, u.name AS initiated_by_name
+     FROM bulk_operations bo
+     LEFT JOIN users u ON u.id = bo.initiated_by
+     ORDER BY bo.created_at DESC
+     LIMIT 50`
+  );
+  
+  return ok(response, rows);
+});
 
 
 
