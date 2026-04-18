@@ -1,56 +1,45 @@
 ```
-# Build artifacts
-dist/
-build/
-*.js
-*.css
-*.map
-
-# Dependencies
-node_modules/
-
 # Environment
 .env
 .env.local
-.env.*
+*.env.*
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+dist/
+build/
+target/
+.gradle/
 
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Logs
+# Logs and temp files
 *.log
+*.tmp
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Coverage
 coverage/
 htmlcov/
 .coverage
 
-# Temporary files
-*.tmp
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Testing
-.pytest_cache/
-.mypy_cache/
-.nyc_output/
-coverage/
-
-# Distribution
-*.tar.gz
+# Compressed files
 *.zip
 *.gz
+*.tar
 *.tgz
 *.bz2
 *.xz
@@ -66,4 +55,8 @@ coverage/
 *.Z
 *.lz
 *.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```

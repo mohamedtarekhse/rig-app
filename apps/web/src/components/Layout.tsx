@@ -75,12 +75,6 @@ export function Layout({ user, definitions }: LayoutProps) {
         </div>
 
         <div className="header-actions">
-          <button className="icon-circle bell-icon" type="button" aria-label="Open notifications">
-            <span className="notif-dot" />
-          </button>
-          <button className="icon-circle gear-icon" type="button" aria-label="Open settings">
-          </button>
-
           <div className="avatar-menu" ref={menuRef}>
             <button
               className={`avatar-trigger ${menuOpen ? 'open' : ''}`}
@@ -123,7 +117,6 @@ export function Layout({ user, definitions }: LayoutProps) {
                 : `app-nav-link ${item.accent === 'amber' ? 'is-amber' : ''}`
             }
           >
-            <span className="nav-glyph" aria-hidden="true">{NAV_META[item.path] ?? 'NA'}</span>
             <span>{item.label}</span>
           </NavLink>
         ))}
