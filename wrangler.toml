@@ -1,0 +1,38 @@
+# wrangler.toml — Rigways ACM
+
+name                   = "rigways"
+pages_build_output_dir = "."
+compatibility_date     = "2024-09-23"
+compatibility_flags    = ["nodejs_compat"]
+
+[vars]
+CORS_ALLOW_ORIGIN     = "https://rigways.pages.dev"
+DISABLE_HASH_ENDPOINT = "false"
+JWT_EXPIRES_SEC       = "86400"
+
+# SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY, JWT_SECRET
+# are set as encrypted secrets via Cloudflare Dashboard
+# Pages → Settings → Environment Variables → Add as "Secret" type
+
+# ── Web Push (VAPID) ──
+# Generate keys:  npx web-push generate-vapid-keys
+# Set VAPID_PUBLIC_KEY below, then set these as secrets:
+#   wrangler secret put VAPID_PRIVATE_KEY
+#   wrangler secret put VAPID_SUBJECT    (e.g. "mailto:admin@rigways.com")
+
+# Public VAPID key is safe to expose. Rotate/set private values as Cloudflare secrets.
+VAPID_PUBLIC_KEY  = "BD87Oh4ZIo9Sc5I0nIxOrXsL_Nll-c6yY8EY-YZqIFGF9YtRzduM2OGPcBfDgpRpx95lf8BmC9WSFPrclOjkg_Q"
+CRON_WORKER_URL  = "https://rigways-cron.mohamedtarekhse.workers.dev"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ── R2 Bucket — certificate file storage ──
+[[r2_buckets]]
+binding     = "CERT_BUCKET"
+bucket_name = "rigways-certs"
+
+# ── Backblaze B2 (optional alternative to R2) ──
+# Configure as secrets/vars in Cloudflare (do NOT commit real keys):
+# B2_KEY_ID, B2_APP_KEY, B2_BUCKET_ID, B2_BUCKET_NAME
